@@ -683,8 +683,35 @@ public:
   LoadInst *CreateLoad(Value *Ptr, bool isVolatile, const Twine &Name = "") {
     return Insert(new LoadInst(Ptr, 0, isVolatile), Name);
   }
+  LoadInst *CreateAtomicLoad(Value *Ptr, AtomicOrdering Ordering,
+                             const Twine &Name = "",
+                             SynchronizationScope SynchScope = CrossThread,
+                             bool isVolatile = false) {
+    LoadInst *Result = Insert(new LoadInst(Ptr, 0, isVolatile), Name);
+    Result->setAtomic(Ordering, SynchScope);
+    return Result;
+  }
   StoreInst *CreateStore(Value *Val, Value *Ptr, bool isVolatile = false) {
     return Insert(new StoreInst(Val, Ptr, isVolatile));
+  }
+  StoreInst *CreateAtomicStore(Value *Val, Value *Ptr, AtomicOrdering Ordering,
+                               SynchronizationScope SynchScope = CrossThread,
+                               bool isVolatile = false) {
+    StoreInst *Result = Insert(new StoreInst(Val, Ptr, isVolatile));
+    Result->setAtomic(Ordering, SynchScope);
+    return Result;
+  }
+  AtomicCmpXchgInst *CreateAtomicCmpXchg(
+      Value *Ptr, Value *Cmp, Value *NewVal,
+      AtomicOrdering Ordering,
+      SynchronizationScope SynchScope = CrossThread,
+      const Twine &Name = "") {
+    return Insert(new AtomicCmpXchgInst(Ptr, Cmp, NewVal, Ordering, SynchScope),
+                  Name);
+  }
+  FenceInst *CreateFence(AtomicOrdering Ordering,
+                         SynchronizationScope SynchScope = CrossThread) {
+    return Insert(new FenceInst(Ordering, SynchScope));
   }
   template<typename InputIterator>
   Value *CreateGEP(Value *Ptr, InputIterator IdxBegin, InputIterator IdxEnd,

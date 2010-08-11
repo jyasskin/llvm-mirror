@@ -828,6 +828,23 @@ unsigned short MemoryInstSubclassData::setAlignment(unsigned Align) {
   return SubclassData;
 }
 
+unsigned short MemoryInstSubclassData::setOrdering(AtomicOrdering Ordering) {
+  switch (Ordering) {
+  default:
+    llvm_unreachable("Invalid AtomicOrdering value.");
+    break;
+  case NotAtomic:
+  case Unordered:
+  case Monotonic:
+  case Acquire:
+  case Release:
+  case AcquireRelease:
+  case SequentiallyConsistent:
+    SubclassData = (SubclassData &~ (15<<6)) | (Ordering << 6);
+    break;
+  }
+  return SubclassData;
+}
 
 //===----------------------------------------------------------------------===//
 //                        AllocaInst Implementation

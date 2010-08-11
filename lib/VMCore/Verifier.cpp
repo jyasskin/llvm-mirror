@@ -316,6 +316,8 @@ namespace {
     void visitGetElementPtrInst(GetElementPtrInst &GEP);
     void visitLoadInst(LoadInst &LI);
     void visitStoreInst(StoreInst &SI);
+    void visitAtomicCmpXchgInst(AtomicCmpXchgInst &CXI);
+    void visitFenceInst(FenceInst &FI);
     void visitInstruction(Instruction &I);
     void visitTerminatorInst(TerminatorInst &I);
     void visitBranchInst(BranchInst &BI);
@@ -1362,6 +1364,30 @@ void Verifier::visitStoreInst(StoreInst &SI) {
           "Stored value type does not match pointer operand type!",
           &SI, ElTy);
   visitInstruction(SI);
+}
+
+void Verifier::visitAtomicCmpXchgInst(AtomicCmpXchgInst &CXI) {
+  Assert1(CXI.getOrdering() != NotAtomic,
+          "cmpxchg instructions must be atomic.", &CXI);
+  const PointerType *PTy = dyn_cast<PointerType>(CXI.getOperand(0)->getType());
+  Assert1(PTy, "First cmpxchg operand must be a pointer.", &CXI);
+  const Type *ElTy = PTy->getElementType();
+  Assert2(ElTy == CXI.getOperand(1)->getType(),
+          "Expected value type does not match pointer operand type!",
+          &CXI, ElTy);
+  Assert2(ElTy == CXI.getOperand(2)->getType(),
+          "Stored value type does not match pointer operand type!",
+          &CXI, ElTy);
+  visitInstruction(CXI);
+}
+
+void Verifier::visitFenceInst(FenceInst &FI) {
+  const AtomicOrdering Ordering = FI.getOrdering();
+  Assert1(Ordering == Acquire || Ordering == Release ||
+          Ordering == AcquireRelease || Ordering == SequentiallyConsistent,
+          "fence instructions may only have "
+          " acquire, release, acq_rel, or seq_cst ordering.", &FI);
+  visitInstruction(FI);
 }
 
 void Verifier::visitAllocaInst(AllocaInst &AI) {

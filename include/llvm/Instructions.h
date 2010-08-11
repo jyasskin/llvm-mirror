@@ -21,6 +21,7 @@
 #include "llvm/Attributes.h"
 #include "llvm/CallingConv.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/ErrorHandling.h"
 #include <iterator>
 
 namespace llvm {
@@ -31,6 +32,22 @@ class APInt;
 class LLVMContext;
 class DominatorTree;
 
+enum AtomicOrdering {
+  NotAtomic = 0,
+  Unordered = 1,
+  Monotonic = 2,
+  // Consume = 3,  // Not specified yet.
+  Acquire = 4,
+  Release = 5,
+  AcquireRelease = 6,
+  SequentiallyConsistent = 7
+};
+
+enum SynchronizationScope {
+  SingleThread = 0,
+  CrossThread = 1
+};
+
 /// Helper class for implementing the memory instructions.  Pass
 /// getSubclassDataFromInstruction() to the constructor.  Setter methods return
 /// a value to pass to setInstructionSubclassData().
@@ -38,6 +55,8 @@ class MemoryInstSubclassData {
   // Layout:
   //  Bits 0-4: log2(Alignment)
   //  Bit 5: isVolatile
+  //  Bits 6-9: AtomicOrdering (non-zero implies isAtomic)
+  //  Bit 10: atomicity is cross-thread
   unsigned short SubclassData;
 
 public:
@@ -62,6 +81,24 @@ public:
 
   /// Sets the alignment of the memory that the instruction is associated with.
   unsigned short setAlignment(unsigned Align);
+
+  bool isAtomic() const {
+    return getOrdering() != NotAtomic;
+  }
+
+  AtomicOrdering getOrdering() const {
+    return static_cast<AtomicOrdering>((SubclassData >> 6) & 15);
+  }
+
+  unsigned short setOrdering(AtomicOrdering Ordering);
+
+  SynchronizationScope getSynchScope() const {
+    return static_cast<SynchronizationScope>((SubclassData >> 10) & 1);
+  }
+  unsigned short setSynchScope(SynchronizationScope xthread) {
+    SubclassData = (SubclassData &~ (15<<10)) | (xthread << 10);
+    return SubclassData;
+  }
 };
 
 //===----------------------------------------------------------------------===//
@@ -205,6 +242,45 @@ public:
       .setAlignment(Align));
   }
 
+  /// True if this is an atomic load.
+  bool isAtomic() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction()).isAtomic();
+  }
+
+  /// Make this load non-atomic.
+  void setNonAtomic() {
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .setOrdering(NotAtomic));
+  }
+
+  /// Make this load atomic, with the specified ordering constraint.  Pass
+  /// SingleThread as the second parameter to make this load atomic only with
+  /// respect to signal handlers executing in the same thread.
+  void setAtomic(AtomicOrdering Ordering,
+                 SynchronizationScope SynchScope = CrossThread) {
+    assert(Ordering != NotAtomic &&
+           "Use setNonAtomic() to set a LoadInst to non-atomic.");
+    MemoryInstSubclassData SubclassData(getSubclassDataFromInstruction());
+    SubclassData.setOrdering(Ordering);
+    SubclassData.setSynchScope(SynchScope);
+    setInstructionSubclassData(SubclassData.get());
+  }
+
+  /// Returns the ordering constraint on this atomic load.  If the load isn't
+  /// atomic, returns NotAtomic.
+  AtomicOrdering getOrdering() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .getOrdering();
+  }
+
+  /// Returns whether this load is atomic between threads or only within a
+  /// single thread.  Unspecified if the load isn't atomic.
+  SynchronizationScope getSynchScope() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .getSynchScope();
+  }
+
   Value *getPointerOperand() { return getOperand(0); }
   const Value *getPointerOperand() const { return getOperand(0); }
   static unsigned getPointerOperandIndex() { return 0U; }
@@ -289,6 +365,45 @@ public:
       .setAlignment(Align));
   }
 
+  /// True if this is an atomic store.
+  bool isAtomic() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction()).isAtomic();
+  }
+
+  /// Make this store non-atomic.
+  void setNonAtomic() {
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .setOrdering(NotAtomic));
+  }
+
+  /// Make this store atomic, with the specified ordering constraint.  Pass
+  /// SingleThread as the second parameter to make this store atomic only with
+  /// respect to signal handlers executing in the same thread.
+  void setAtomic(AtomicOrdering Ordering,
+                 SynchronizationScope SynchScope = CrossThread) {
+    assert(Ordering != NotAtomic &&
+           "Use setNonAtomic() to set a StoreInst to non-atomic.");
+    MemoryInstSubclassData SubclassData(getSubclassDataFromInstruction());
+    SubclassData.setOrdering(Ordering);
+    SubclassData.setSynchScope(SynchScope);
+    setInstructionSubclassData(SubclassData.get());
+  }
+
+  /// Returns the ordering constraint on this atomic store.  If the store isn't
+  /// atomic, returns NotAtomic.
+  AtomicOrdering getOrdering() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .getOrdering();
+  }
+
+  /// Returns whether this store is atomic between threads or only within a
+  /// single thread.  Unspecified if the store isn't atomic.
+  SynchronizationScope getSynchScope() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .getSynchScope();
+  }
+
   Value *getValueOperand() { return getOperand(0); }
   const Value *getValueOperand() const { return getOperand(0); }
   
@@ -321,6 +436,206 @@ struct OperandTraits<StoreInst> : public FixedNumOperandTraits<2> {
 };
 
 DEFINE_TRANSPARENT_OPERAND_ACCESSORS(StoreInst, Value)
+
+//===----------------------------------------------------------------------===//
+//                                AtomicCmpXchgInst Class
+//===----------------------------------------------------------------------===//
+
+/// AtomicCmpXchgInst - an instruction that atomically checks whether a
+/// specified value is in a memory location, and, if it is, stores a new value
+/// there.  Returns i1 true if the specified value was present and the
+/// assignment happened.
+///
+class AtomicCmpXchgInst : public Instruction {
+  void *operator new(size_t, unsigned);  // DO NOT IMPLEMENT
+  void AssertOK();
+protected:
+  virtual AtomicCmpXchgInst *clone_impl() const;
+public:
+  // allocate space for exactly three operands
+  void *operator new(size_t s) {
+    return User::operator new(s, 3);
+  }
+  AtomicCmpXchgInst(Value *Ptr, Value *Cmp, Value *NewVal,
+                    AtomicOrdering Ordering, SynchronizationScope SynchScope,
+                    Instruction *InsertBefore = 0);
+  AtomicCmpXchgInst(Value *Ptr, Value *Cmp, Value *NewVal,
+                    AtomicOrdering Ordering, SynchronizationScope CrossThread,
+                    BasicBlock *InsertAtEnd);
+
+  /// isVolatile - Return true if this is a cmpxchg from a volatile memory
+  /// location.
+  ///
+  bool isVolatile() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .isVolatile();
+  }
+
+  /// setVolatile - Specify whether this is a volatile load or not.
+  ///
+  void setVolatile(bool V) {
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction()).setVolatile(V));
+  }
+
+  /// Transparently provide more efficient getOperand methods.
+  DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
+
+  /// getAlignment - Return the alignment of the access that is being performed
+  ///
+  unsigned getAlignment() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .getAlignment();
+  }
+
+  void setAlignment(unsigned Align) {
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .setAlignment(Align));
+  }
+
+  /// Set the ordering constraint on this cmpxchg.
+  void setOrdering(AtomicOrdering Ordering) {
+    assert(Ordering != NotAtomic &&
+           "CmpXchg instructions can only be atomic.");
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .setOrdering(Ordering));
+  }
+
+  /// Specify whether this cmpxchg is atomic and orders other operations with
+  /// respect to all concurrently executing threads, or only with respect to
+  /// signal handlers executing in the same thread.
+  void setSynchScope(SynchronizationScope SynchScope) {
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .setSynchScope(SynchScope));
+  }
+
+  /// Returns the ordering constraint on this cmpxchg.
+  AtomicOrdering getOrdering() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .getOrdering();
+  }
+
+  /// Returns whether this cmpxchg is atomic between threads or only within a
+  /// single thread.
+  SynchronizationScope getSynchScope() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .getSynchScope();
+  }
+
+  Value *getValueOperand() { return getOperand(0); }
+  const Value *getValueOperand() const { return getOperand(0); }
+  
+  Value *getPointerOperand() { return getOperand(1); }
+  const Value *getPointerOperand() const { return getOperand(1); }
+  static unsigned getPointerOperandIndex() { return 1U; }
+
+  unsigned getPointerAddressSpace() const {
+    return cast<PointerType>(getPointerOperand()->getType())->getAddressSpace();
+  }
+  
+  // Methods for support type inquiry through isa, cast, and dyn_cast:
+  static inline bool classof(const StoreInst *) { return true; }
+  static inline bool classof(const Instruction *I) {
+    return I->getOpcode() == Instruction::Store;
+  }
+  static inline bool classof(const Value *V) {
+    return isa<Instruction>(V) && classof(cast<Instruction>(V));
+  }
+private:
+  // Shadow Instruction::setInstructionSubclassData with a private forwarding
+  // method so that subclasses cannot accidentally use it.
+  void setInstructionSubclassData(unsigned short D) {
+    Instruction::setInstructionSubclassData(D);
+  }
+};
+
+template <>
+struct OperandTraits<AtomicCmpXchgInst> : public FixedNumOperandTraits<3> {
+};
+
+DEFINE_TRANSPARENT_OPERAND_ACCESSORS(AtomicCmpXchgInst, Value)
+
+//===----------------------------------------------------------------------===//
+//                                FenceInst Class
+//===----------------------------------------------------------------------===//
+
+/// FenceInst - an instruction for ordering other memory operations
+///
+class FenceInst : public Instruction {
+  void *operator new(size_t, unsigned);  // DO NOT IMPLEMENT
+  void AssertOK();
+protected:
+  virtual FenceInst *clone_impl() const;
+public:
+  // allocate space for exactly zero operands
+  void *operator new(size_t s) {
+    return User::operator new(s, 0);
+  }
+
+  // Ordering may only be Acquire, Release, AcquireRelease, or
+  // SequentiallyConsistent.
+  FenceInst(AtomicOrdering Ordering,
+            SynchronizationScope SynchScope = CrossThread,
+            Instruction *InsertBefore = 0);
+  FenceInst(AtomicOrdering Ordering, SynchronizationScope SynchScope,
+            BasicBlock *InsertAtEnd);
+
+  /// Returns the ordering effect of this fence.
+  AtomicOrdering getOrdering() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .getOrdering();
+  }
+
+  /// Set the ordering constraint on this fence.  May only be Acquire, Release,
+  /// AcquireRelease, or SequentiallyConsistent.
+  void setOrdering(AtomicOrdering Ordering) {
+    switch (Ordering) {
+    case Acquire:
+    case Release:
+    case AcquireRelease:
+    case SequentiallyConsistent:
+      setInstructionSubclassData(
+        MemoryInstSubclassData(getSubclassDataFromInstruction())
+        .setOrdering(Ordering));
+      return;
+    default:
+      llvm_unreachable("FenceInst ordering must be Acquire, Release,"
+                       " AcquireRelease, or SequentiallyConsistent");
+    }
+  }
+
+  SynchronizationScope getSynchScope() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .getSynchScope();
+  }
+
+  /// Specify whether this fence orders other operations with respect to all
+  /// concurrently executing threads, or only with respect to signal handlers
+  /// executing in the same thread.
+  void setSynchScope(SynchronizationScope xthread) {
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .setSynchScope(xthread));
+  }
+
+  // Methods for support type inquiry through isa, cast, and dyn_cast:
+  static inline bool classof(const StoreInst *) { return true; }
+  static inline bool classof(const Instruction *I) {
+    return I->getOpcode() == Instruction::Fence;
+  }
+  static inline bool classof(const Value *V) {
+    return isa<Instruction>(V) && classof(cast<Instruction>(V));
+  }
+private:
+  // Shadow Instruction::setInstructionSubclassData with a private forwarding
+  // method so that subclasses cannot accidentally use it.
+  void setInstructionSubclassData(unsigned short D) {
+    Instruction::setInstructionSubclassData(D);
+  }
+};
 
 //===----------------------------------------------------------------------===//
 //                             GetElementPtrInst Class

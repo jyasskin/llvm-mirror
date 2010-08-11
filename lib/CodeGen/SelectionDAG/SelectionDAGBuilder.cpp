@@ -3021,6 +3021,14 @@ void SelectionDAGBuilder::visitStore(const StoreInst &I) {
                           MVT::Other, &Chains[0], NumValues));
 }
 
+void SelectionDAGBuilder::visitAtomicCmpXchg(const AtomicCmpXchgInst &I) {
+  llvm_unreachable("Not implemented yet.");
+}
+
+void SelectionDAGBuilder::visitFence(const FenceInst &I) {
+  llvm_unreachable("Not implemented yet.");
+}
+
 /// visitTargetIntrinsic - Lower a call of a target intrinsic to an INTRINSIC
 /// node.
 void SelectionDAGBuilder::visitTargetIntrinsic(const CallInst &I,
