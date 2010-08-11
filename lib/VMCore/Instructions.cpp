@@ -816,6 +816,20 @@ void BranchInst::setSuccessorV(unsigned idx, BasicBlock *B) {
 
 
 //===----------------------------------------------------------------------===//
+//                        MemoryInstSubclassData Implementation
+//===----------------------------------------------------------------------===//
+
+unsigned short MemoryInstSubclassData::setAlignment(unsigned Align) {
+  assert((Align & (Align-1)) == 0 && "Alignment is not a power of 2!");
+  assert(Align <= Value::MaximumAlignment &&
+         "Alignment is greater than MaximumAlignment!");
+  SubclassData = (SubclassData &~ 31) | (Log2_32(Align) + 1);
+  assert(getAlignment() == Align && "Alignment representation error!");
+  return SubclassData;
+}
+
+
+//===----------------------------------------------------------------------===//
 //                        AllocaInst Implementation
 //===----------------------------------------------------------------------===//
 
@@ -887,14 +901,6 @@ AllocaInst::AllocaInst(const Type *Ty, Value *ArraySize, unsigned Align,
 
 // Out of line virtual method, so the vtable, etc has a home.
 AllocaInst::~AllocaInst() {
-}
-
-void AllocaInst::setAlignment(unsigned Align) {
-  assert((Align & (Align-1)) == 0 && "Alignment is not a power of 2!");
-  assert(Align <= MaximumAlignment &&
-         "Alignment is greater than MaximumAlignment!");
-  setInstructionSubclassData(Log2_32(Align) + 1);
-  assert(getAlignment() == Align && "Alignment representation error!");
 }
 
 bool AllocaInst::isArrayAllocation() const {
@@ -1026,15 +1032,6 @@ LoadInst::LoadInst(Value *Ptr, const char *Name, bool isVolatile,
   if (Name && Name[0]) setName(Name);
 }
 
-void LoadInst::setAlignment(unsigned Align) {
-  assert((Align & (Align-1)) == 0 && "Alignment is not a power of 2!");
-  assert(Align <= MaximumAlignment &&
-         "Alignment is greater than MaximumAlignment!");
-  setInstructionSubclassData((getSubclassDataFromInstruction() & 1) |
-                             ((Log2_32(Align)+1)<<1));
-  assert(getAlignment() == Align && "Alignment representation error!");
-}
-
 //===----------------------------------------------------------------------===//
 //                           StoreInst Implementation
 //===----------------------------------------------------------------------===//
@@ -1123,15 +1120,6 @@ StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
   setVolatile(isVolatile);
   setAlignment(0);
   AssertOK();
-}
-
-void StoreInst::setAlignment(unsigned Align) {
-  assert((Align & (Align-1)) == 0 && "Alignment is not a power of 2!");
-  assert(Align <= MaximumAlignment &&
-         "Alignment is greater than MaximumAlignment!");
-  setInstructionSubclassData((getSubclassDataFromInstruction() & 1) |
-                             ((Log2_32(Align)+1) << 1));
-  assert(getAlignment() == Align && "Alignment representation error!");
 }
 
 //===----------------------------------------------------------------------===//

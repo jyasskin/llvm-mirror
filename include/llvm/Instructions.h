@@ -31,6 +31,39 @@ class APInt;
 class LLVMContext;
 class DominatorTree;
 
+/// Helper class for implementing the memory instructions.  Pass
+/// getSubclassDataFromInstruction() to the constructor.  Setter methods return
+/// a value to pass to setInstructionSubclassData().
+class MemoryInstSubclassData {
+  // Layout:
+  //  Bits 0-4: log2(Alignment)
+  //  Bit 5: isVolatile
+  unsigned short SubclassData;
+
+public:
+  MemoryInstSubclassData(unsigned short SubclassData)
+    : SubclassData(SubclassData) {}
+
+  /// Returns the accumulated subclass-data value.
+  unsigned short get() const { return SubclassData; }
+
+  bool isVolatile() const { return SubclassData & 32; }
+
+  /// setVolatile - Specify whether this is a volatile operation or not.
+  ///
+  unsigned short setVolatile(bool V) {
+    SubclassData = (SubclassData & ~32) | (V ? 32 : 0);
+    return SubclassData;
+  }
+
+  unsigned getAlignment() const {
+    return (1u << (SubclassData & 31)) >> 1;
+  }
+
+  /// Sets the alignment of the memory that the instruction is associated with.
+  unsigned short setAlignment(unsigned Align);
+};
+
 //===----------------------------------------------------------------------===//
 //                                AllocaInst Class
 //===----------------------------------------------------------------------===//
@@ -83,9 +116,14 @@ public:
   /// by the instruction.
   ///
   unsigned getAlignment() const {
-    return (1u << getSubclassDataFromInstruction()) >> 1;
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .getAlignment();
   }
-  void setAlignment(unsigned Align);
+  void setAlignment(unsigned Align) {
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .setAlignment(Align));
+  }
 
   /// isStaticAlloca - Return true if this alloca is in the entry block of the
   /// function and is a constant size.  If so, the code generator will fold it
@@ -142,22 +180,30 @@ public:
   /// isVolatile - Return true if this is a load from a volatile memory
   /// location.
   ///
-  bool isVolatile() const { return getSubclassDataFromInstruction() & 1; }
+  bool isVolatile() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .isVolatile();
+  }
 
   /// setVolatile - Specify whether this is a volatile load or not.
   ///
   void setVolatile(bool V) {
-    setInstructionSubclassData((getSubclassDataFromInstruction() & ~1) |
-                               (V ? 1 : 0));
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction()).setVolatile(V));
   }
 
   /// getAlignment - Return the alignment of the access that is being performed
   ///
   unsigned getAlignment() const {
-    return (1 << (getSubclassDataFromInstruction() >> 1)) >> 1;
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .getAlignment();
   }
 
-  void setAlignment(unsigned Align);
+  void setAlignment(unsigned Align) {
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .setAlignment(Align));
+  }
 
   Value *getPointerOperand() { return getOperand(0); }
   const Value *getPointerOperand() const { return getOperand(0); }
@@ -212,16 +258,19 @@ public:
             unsigned Align, BasicBlock *InsertAtEnd);
 
 
-  /// isVolatile - Return true if this is a load from a volatile memory
+  /// isVolatile - Return true if this is a store to a volatile memory
   /// location.
   ///
-  bool isVolatile() const { return getSubclassDataFromInstruction() & 1; }
+  bool isVolatile() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .isVolatile();
+  }
 
-  /// setVolatile - Specify whether this is a volatile load or not.
+  /// setVolatile - Specify whether this is a volatile store or not.
   ///
   void setVolatile(bool V) {
-    setInstructionSubclassData((getSubclassDataFromInstruction() & ~1) |
-                               (V ? 1 : 0));
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction()).setVolatile(V));
   }
 
   /// Transparently provide more efficient getOperand methods.
@@ -230,10 +279,15 @@ public:
   /// getAlignment - Return the alignment of the access that is being performed
   ///
   unsigned getAlignment() const {
-    return (1 << (getSubclassDataFromInstruction() >> 1)) >> 1;
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .getAlignment();
   }
 
-  void setAlignment(unsigned Align);
+  void setAlignment(unsigned Align) {
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .setAlignment(Align));
+  }
 
   Value *getValueOperand() { return getOperand(0); }
   const Value *getValueOperand() const { return getOperand(0); }
