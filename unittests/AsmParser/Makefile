@@ -1,4 +1,4 @@
-##===- unittests/Makefile ----------------------------------*- Makefile -*-===##
+##===- unittests/VMCore/Makefile ---------------------------*- Makefile -*-===##
 #
 #                     The LLVM Compiler Infrastructure
 #
@@ -7,11 +7,9 @@
 #
 ##===----------------------------------------------------------------------===##
 
-LEVEL = ..
+LEVEL = ../..
+TESTNAME = AsmParser
+LINK_COMPONENTS := asmparser
 
-PARALLEL_DIRS = ADT AsmParser ExecutionEngine Support Transforms VMCore Analysis
-
-include $(LEVEL)/Makefile.common
-
-clean::
-	$(Verb) $(RM) -f *Tests
+include $(LEVEL)/Makefile.config
+include $(LLVM_SRC_ROOT)/unittests/Makefile.unittest
