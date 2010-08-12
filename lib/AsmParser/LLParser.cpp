@@ -1207,6 +1207,32 @@ bool LLParser::ParseOptionalCommaAlign(unsigned &Alignment,
   return false;
 }
 
+/// ParseScopeAndOrdering
+///   if isAtomic: ::= 'singlethread'? AtomicOrdering
+///   else: ::=
+///
+/// This sets Scope and Ordering to the parsed values.
+bool LLParser::ParseScopeAndOrdering(bool isAtomic, SynchronizationScope &Scope,
+                                     AtomicOrdering &Ordering) {
+  if (!isAtomic)
+    return false;
+
+  Scope = CrossThread;
+  if (EatIfPresent(lltok::kw_singlethread))
+    Scope = SingleThread;
+  switch (Lex.getKind()) {
+  default: return TokError("Expected ordering on atomic instruction");
+  case lltok::kw_unordered: Ordering = Unordered; break;
+  case lltok::kw_monotonic: Ordering = Monotonic; break;
+  case lltok::kw_acquire: Ordering = Acquire; break;
+  case lltok::kw_release: Ordering = Release; break;
+  case lltok::kw_acq_rel: Ordering = AcquireRelease; break;
+  case lltok::kw_seq_cst: Ordering = SequentiallyConsistent; break;
+  }
+  Lex.Lex();
+  return false;
+}
+
 /// ParseOptionalStackAlignment
 ///   ::= /* empty */
 ///   ::= 'alignstack' '(' 4 ')'
@@ -3072,13 +3098,24 @@ int LLParser::ParseInstruction(Instruction *&Inst, BasicBlock *BB,
   case lltok::kw_alloca:         return ParseAlloc(Inst, PFS);
   case lltok::kw_malloc:         return ParseAlloc(Inst, PFS, BB, false);
   case lltok::kw_free:           return ParseFree(Inst, PFS, BB);
-  case lltok::kw_load:           return ParseLoad(Inst, PFS, false);
-  case lltok::kw_store:          return ParseStore(Inst, PFS, false);
-  case lltok::kw_volatile:
+  case lltok::kw_load:           return ParseLoad(Inst, PFS, false, false);
+  case lltok::kw_store:          return ParseStore(Inst, PFS, false, false);
+  case lltok::kw_volatile: {
+    bool atomic = false;
+    if (EatIfPresent(lltok::kw_atomic))
+      atomic = true;
     if (EatIfPresent(lltok::kw_load))
-      return ParseLoad(Inst, PFS, true);
+      return ParseLoad(Inst, PFS, true, atomic);
     else if (EatIfPresent(lltok::kw_store))
-      return ParseStore(Inst, PFS, true);
+      return ParseStore(Inst, PFS, true, atomic);
+    else
+      return TokError("expected 'load' or 'store'");
+  }
+  case lltok::kw_atomic:
+    if (EatIfPresent(lltok::kw_load))
+      return ParseLoad(Inst, PFS, false, true);
+    else if (EatIfPresent(lltok::kw_store))
+      return ParseStore(Inst, PFS, false, true);
     else
       return TokError("expected 'load' or 'store'");
   case lltok::kw_getresult:     return ParseGetResult(Inst, PFS);
@@ -3813,12 +3850,17 @@ bool LLParser::ParseFree(Instruction *&Inst, PerFunctionState &PFS,
 
 /// ParseLoad
 ///   ::= 'volatile'? 'load' TypeAndValue (',' OptionalInfo)?
+///   ::= 'volatile'? 'atomic' 'load' TypeAndValue 'singlethread'?
+///       AtomicOrdering (',' OptionalInfo)?
 int LLParser::ParseLoad(Instruction *&Inst, PerFunctionState &PFS,
-                        bool isVolatile) {
+                        bool isVolatile, bool isAtomic) {
   Value *Val; LocTy Loc;
   unsigned Alignment = 0;
   bool AteExtraComma = false;
+  AtomicOrdering Ordering = NotAtomic;
+  SynchronizationScope Scope = CrossThread;
   if (ParseTypeAndValue(Val, Loc, PFS) ||
+      ParseScopeAndOrdering(isAtomic, Scope, Ordering) ||
       ParseOptionalCommaAlign(Alignment, AteExtraComma))
     return true;
 
@@ -3826,14 +3868,19 @@ int LLParser::ParseLoad(Instruction *&Inst, PerFunctionState &PFS,
       !cast<PointerType>(Val->getType())->getElementType()->isFirstClassType())
     return Error(Loc, "load operand must be a pointer to a first class type");
 
-  Inst = new LoadInst(Val, "", isVolatile, Alignment);
+  LoadInst *LI = new LoadInst(Val, "", isVolatile, Alignment);
+  if (isAtomic)
+    LI->setAtomic(Ordering, Scope);
+  Inst = LI;
   return AteExtraComma ? InstExtraComma : InstNormal;
 }
 
 /// ParseStore
 ///   ::= 'volatile'? 'store' TypeAndValue ',' TypeAndValue (',' 'align' i32)?
+///   ::= 'volatile'? 'atomic' 'store' TypeAndValue 'singlethread'?
+///       AtomicOrdering (',' OptionalInfo)?
 int LLParser::ParseStore(Instruction *&Inst, PerFunctionState &PFS,
-                         bool isVolatile) {
+                         bool isVolatile, bool isAtomic) {
   Value *Val, *Ptr; LocTy Loc, PtrLoc;
   unsigned Alignment = 0;
   bool AteExtraComma = false;

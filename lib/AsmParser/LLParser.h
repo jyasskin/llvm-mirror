@@ -15,6 +15,7 @@
 #define LLVM_ASMPARSER_LLPARSER_H
 
 #include "LLLexer.h"
+#include "llvm/Instructions.h"
 #include "llvm/Module.h"
 #include "llvm/Type.h"
 #include "llvm/ADT/DenseMap.h"
@@ -188,6 +189,8 @@ namespace llvm {
     bool ParseOptionalAlignment(unsigned &Alignment);
     bool ParseOptionalStackAlignment(unsigned &Alignment);
     bool ParseOptionalCommaAlign(unsigned &Alignment, bool &AteExtraComma);
+    bool ParseScopeAndOrdering(bool isAtomic, SynchronizationScope &Scope,
+                               AtomicOrdering &Ordering);
     bool ParseIndexList(SmallVectorImpl<unsigned> &Indices,bool &AteExtraComma);
     bool ParseIndexList(SmallVectorImpl<unsigned> &Indices) {
       bool AteExtraComma;
@@ -360,8 +363,10 @@ namespace llvm {
     int ParseAlloc(Instruction *&I, PerFunctionState &PFS,
                     BasicBlock *BB = 0, bool isAlloca = true);
     bool ParseFree(Instruction *&I, PerFunctionState &PFS, BasicBlock *BB);
-    int ParseLoad(Instruction *&I, PerFunctionState &PFS, bool isVolatile);
-    int ParseStore(Instruction *&I, PerFunctionState &PFS, bool isVolatile);
+    int ParseLoad(Instruction *&I, PerFunctionState &PFS,
+                  bool isVolatile, bool isAtomic);
+    int ParseStore(Instruction *&I, PerFunctionState &PFS,
+                   bool isVolatile, bool isAtomic);
     bool ParseGetResult(Instruction *&I, PerFunctionState &PFS);
     int ParseGetElementPtr(Instruction *&I, PerFunctionState &PFS);
     int ParseExtractValue(Instruction *&I, PerFunctionState &PFS);
