@@ -1353,6 +1353,12 @@ void Verifier::visitLoadInst(LoadInst &LI) {
   const Type *ElTy = PTy->getElementType();
   Assert2(ElTy == LI.getType(),
           "Load result type does not match pointer operand type!", &LI, ElTy);
+  if (LI.isAtomic()) {
+    Assert1(LI.getOrdering() != Release,
+            "Atomic load cannot be release operation.", &LI);
+    Assert1(LI.getOrdering() != AcquireRelease,
+            "Atomic load cannot be acquire+release operation.", &LI);
+  }
   visitInstruction(LI);
 }
 
@@ -1363,6 +1369,12 @@ void Verifier::visitStoreInst(StoreInst &SI) {
   Assert2(ElTy == SI.getOperand(0)->getType(),
           "Stored value type does not match pointer operand type!",
           &SI, ElTy);
+  if (SI.isAtomic()) {
+    Assert1(SI.getOrdering() != Acquire,
+            "Atomic store cannot be acquire operation.", &SI);
+    Assert1(SI.getOrdering() != AcquireRelease,
+            "Atomic store cannot be acquire+release operation.", &SI);
+  }
   visitInstruction(SI);
 }
 

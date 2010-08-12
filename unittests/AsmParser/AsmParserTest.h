@@ -33,12 +33,20 @@ protected:
       ADD_FAILURE() << ErrorStr;
       return NULL;
     }
-    std::string ErrorInfo;
     if (verifyModule(*Result, ReturnStatusAction, &ErrorStr)) {
-      ADD_FAILURE() << ErrorInfo;
+      ADD_FAILURE() << ErrorStr;
       return NULL;
     }
     return Result.take();
+  }
+
+  std::string ParseError(const char *AsmString) {
+    OwningPtr<Module> Result(new Module("Parsed", Context));
+    SMDiagnostic Errors;
+    if (ParseAssemblyString(AsmString, Result.get(), Errors, Context))
+      return "<parse succeeded>";
+    else
+      return Errors.getMessage();
   }
 
 private:

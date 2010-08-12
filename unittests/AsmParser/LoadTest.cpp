@@ -63,12 +63,10 @@ TEST_F(LoadAsmTest, Atomic) {
                             " %b = atomic load i32* %a unordered "
                             " %c = atomic load i32* %a monotonic "
                             " %d = atomic load i32* %a acquire "
-                            " %e = atomic load i32* %a release "
-                            " %f = atomic load i32* %a acq_rel "
-                            " %g = atomic load i32* %a seq_cst "
-                            " %h = volatile atomic load i32* %a acquire "
-                            " %i = atomic load i32* %a singlethread seq_cst "
-                            " %j = volatile atomic load i32* %a"
+                            " %e = atomic load i32* %a seq_cst "
+                            " %f = volatile atomic load i32* %a acquire "
+                            " %g = atomic load i32* %a singlethread seq_cst "
+                            " %h = volatile atomic load i32* %a"
                             "  singlethread monotonic, align 16 "
                             " ret void "
                             "}"));
@@ -93,31 +91,36 @@ TEST_F(LoadAsmTest, Atomic) {
 
   ASSERT_TRUE((L = dyn_cast<LoadInst>(++I)));
   EXPECT_EQ("e", L->getName());
-  EXPECT_EQ(Release, L->getOrdering());
-
-  ASSERT_TRUE((L = dyn_cast<LoadInst>(++I)));
-  EXPECT_EQ("f", L->getName());
-  EXPECT_EQ(AcquireRelease, L->getOrdering());
-
-  ASSERT_TRUE((L = dyn_cast<LoadInst>(++I)));
-  EXPECT_EQ("g", L->getName());
   EXPECT_EQ(SequentiallyConsistent, L->getOrdering());
 
   ASSERT_TRUE((L = dyn_cast<LoadInst>(++I)));
-  EXPECT_EQ("h", L->getName());
+  EXPECT_EQ("f", L->getName());
   EXPECT_TRUE(L->isVolatile());
   EXPECT_EQ(Acquire, L->getOrdering());
 
   ASSERT_TRUE((L = dyn_cast<LoadInst>(++I)));
-  EXPECT_EQ("i", L->getName());
+  EXPECT_EQ("g", L->getName());
   EXPECT_EQ(SingleThread, L->getSynchScope());
   EXPECT_EQ(SequentiallyConsistent, L->getOrdering());
 
   ASSERT_TRUE((L = dyn_cast<LoadInst>(++I)));
-  EXPECT_EQ("j", L->getName());
+  EXPECT_EQ("h", L->getName());
   EXPECT_EQ(SingleThread, L->getSynchScope());
   EXPECT_EQ(Monotonic, L->getOrdering());
   EXPECT_EQ(16u, L->getAlignment());
+}
+
+TEST_F(LoadAsmTest, IllegalAtomics) {
+  EXPECT_EQ("error: atomic load cannot be release or acq_rel",
+            ParseError("define void @f(i32* %a) {"
+                       " atomic load i32* %a release "
+                       " ret void"
+                       "}"));
+  EXPECT_EQ("error: atomic load cannot be release or acq_rel",
+            ParseError("define void @f(i32* %a) {"
+                       " atomic load i32* %a acq_rel "
+                       " ret void"
+                       "}"));
 }
 
 }  // end anonymous namespace

@@ -3867,6 +3867,8 @@ int LLParser::ParseLoad(Instruction *&Inst, PerFunctionState &PFS,
   if (!Val->getType()->isPointerTy() ||
       !cast<PointerType>(Val->getType())->getElementType()->isFirstClassType())
     return Error(Loc, "load operand must be a pointer to a first class type");
+  if (isAtomic && (Ordering == Release || Ordering == AcquireRelease))
+    return Error(Loc, "atomic load cannot be release or acq_rel");
 
   LoadInst *LI = new LoadInst(Val, "", isVolatile, Alignment);
   if (isAtomic)
@@ -3899,6 +3901,8 @@ int LLParser::ParseStore(Instruction *&Inst, PerFunctionState &PFS,
     return Error(Loc, "store operand must be a first class value");
   if (cast<PointerType>(Ptr->getType())->getElementType() != Val->getType())
     return Error(Loc, "stored value and pointer type do not match");
+  if (isAtomic && (Ordering == Acquire || Ordering == AcquireRelease))
+    return Error(Loc, "atomic store cannot be acquire or acq_rel");
 
   StoreInst *SI = new StoreInst(Val, Ptr, isVolatile, Alignment);
   if (isAtomic)

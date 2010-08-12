@@ -59,11 +59,9 @@ TEST_F(StoreAsmTest, Atomic) {
   OwningPtr<Module> M(Parse("define void @f(i32* %a) {"
                             " atomic store i32 0, i32* %a unordered "
                             " atomic store i32 0, i32* %a monotonic "
-                            " atomic store i32 0, i32* %a acquire "
                             " atomic store i32 0, i32* %a release "
-                            " atomic store i32 0, i32* %a acq_rel "
                             " atomic store i32 0, i32* %a seq_cst "
-                            " volatile atomic store i32 0, i32* %a acquire "
+                            " volatile atomic store i32 0, i32* %a release "
                             " atomic store i32 0, i32* %a singlethread seq_cst "
                             " volatile atomic store i32 0, i32* %a"
                             "  singlethread monotonic, align 16 "
@@ -83,20 +81,14 @@ TEST_F(StoreAsmTest, Atomic) {
   EXPECT_EQ(Monotonic, L->getOrdering());
 
   ASSERT_TRUE((L = dyn_cast<StoreInst>(++I)));
-  EXPECT_EQ(Acquire, L->getOrdering());
-
-  ASSERT_TRUE((L = dyn_cast<StoreInst>(++I)));
   EXPECT_EQ(Release, L->getOrdering());
-
-  ASSERT_TRUE((L = dyn_cast<StoreInst>(++I)));
-  EXPECT_EQ(AcquireRelease, L->getOrdering());
 
   ASSERT_TRUE((L = dyn_cast<StoreInst>(++I)));
   EXPECT_EQ(SequentiallyConsistent, L->getOrdering());
 
   ASSERT_TRUE((L = dyn_cast<StoreInst>(++I)));
   EXPECT_TRUE(L->isVolatile());
-  EXPECT_EQ(Acquire, L->getOrdering());
+  EXPECT_EQ(Release, L->getOrdering());
 
   ASSERT_TRUE((L = dyn_cast<StoreInst>(++I)));
   EXPECT_EQ(SingleThread, L->getSynchScope());
@@ -106,6 +98,19 @@ TEST_F(StoreAsmTest, Atomic) {
   EXPECT_EQ(SingleThread, L->getSynchScope());
   EXPECT_EQ(Monotonic, L->getOrdering());
   EXPECT_EQ(16u, L->getAlignment());
+}
+
+TEST_F(StoreAsmTest, IllegalAtomics) {
+  EXPECT_EQ("error: atomic store cannot be acquire or acq_rel",
+            ParseError("define void @f(i32* %a) {"
+                       " atomic store i32 0, i32* %a acquire "
+                       " ret void"
+                       "}"));
+  EXPECT_EQ("error: atomic store cannot be acquire or acq_rel",
+            ParseError("define void @f(i32* %a) {"
+                       " atomic store i32 0, i32* %a acq_rel "
+                       " ret void"
+                       "}"));
 }
 
 }  // end anonymous namespace

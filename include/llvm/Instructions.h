@@ -261,6 +261,8 @@ public:
                  SynchronizationScope SynchScope = CrossThread) {
     assert(Ordering != NotAtomic &&
            "Use setNonAtomic() to set a LoadInst to non-atomic.");
+    assert(Ordering != Release && Ordering != AcquireRelease &&
+           "LoadInsts cannot be release or acq_rel.");
     MemoryInstSubclassData SubclassData(getSubclassDataFromInstruction());
     SubclassData.setOrdering(Ordering);
     SubclassData.setSynchScope(SynchScope);
@@ -384,6 +386,8 @@ public:
                  SynchronizationScope SynchScope = CrossThread) {
     assert(Ordering != NotAtomic &&
            "Use setNonAtomic() to set a StoreInst to non-atomic.");
+    assert(Ordering != Acquire && Ordering != AcquireRelease &&
+           "StoreInsts cannot be acquire or acq_rel.");
     MemoryInstSubclassData SubclassData(getSubclassDataFromInstruction());
     SubclassData.setOrdering(Ordering);
     SubclassData.setSynchScope(SynchScope);
