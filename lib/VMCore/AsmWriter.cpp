@@ -1262,6 +1262,7 @@ public:
 
   void writeOperand(const Value *Op, bool PrintType);
   void writeParamOperand(const Value *Operand, Attributes Attrs);
+  void writeOrdering(AtomicOrdering Ordering);
 
   void writeAllMDNodes();
 
@@ -1307,6 +1308,19 @@ void AssemblyWriter::writeParamOperand(const Value *Operand,
   Out << ' ';
   // Print the operand
   WriteAsOperandInternal(Out, Operand, &TypePrinter, &Machine, TheModule);
+}
+
+void AssemblyWriter::writeOrdering(AtomicOrdering Ordering) {
+  switch (Ordering) {
+  default: Out << " <bad ordering " << int(Ordering) << ">"; break;
+  case NotAtomic: break;
+  case Unordered: Out << " unordered"; break;
+  case Monotonic: Out << " monotonic"; break;
+  case Acquire: Out << " acquire"; break;
+  case Release: Out << " release"; break;
+  case AcquireRelease: Out << " acq_rel"; break;
+  case SequentiallyConsistent: Out << " seq_cst"; break;
+  }
 }
 
 void AssemblyWriter::printModule(const Module *M) {
@@ -1762,6 +1776,11 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
     Out << "tail ";
   }
 
+  // If this is an atomic load or store, print out the atomic marker.
+  if ((isa<LoadInst>(I)  && cast<LoadInst>(I).isAtomic()) ||
+      (isa<StoreInst>(I) && cast<StoreInst>(I).isAtomic()))
+      Out << "atomic ";
+
   // Print out the opcode...
   Out << I.getOpcodeName();
 
@@ -2003,11 +2022,23 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
     }
   }
 
-  // Print post operand alignment for load/store.
-  if (isa<LoadInst>(I) && cast<LoadInst>(I).getAlignment()) {
-    Out << ", align " << cast<LoadInst>(I).getAlignment();
-  } else if (isa<StoreInst>(I) && cast<StoreInst>(I).getAlignment()) {
-    Out << ", align " << cast<StoreInst>(I).getAlignment();
+  // Print post operand atomic info and alignment for load/store.
+  if (const LoadInst *LI = dyn_cast<LoadInst>(&I)) {
+    if (LI->isAtomic()) {
+      if (LI->getSynchScope() == SingleThread)
+        Out << " singlethread";
+      writeOrdering(LI->getOrdering());
+    }
+    if (LI->getAlignment())
+      Out << ", align " << LI->getAlignment();
+  } else if (const StoreInst *SI = dyn_cast<StoreInst>(&I)) {
+    if (SI->isAtomic()) {
+      if (SI->getSynchScope() == SingleThread)
+        Out << " singlethread";
+      writeOrdering(SI->getOrdering());
+    }
+    if (SI->getAlignment())
+      Out << ", align " << SI->getAlignment();
   }
 
   // Print Metadata info.
