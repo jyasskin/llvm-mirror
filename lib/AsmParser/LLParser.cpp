@@ -3884,9 +3884,12 @@ int LLParser::ParseStore(Instruction *&Inst, PerFunctionState &PFS,
   Value *Val, *Ptr; LocTy Loc, PtrLoc;
   unsigned Alignment = 0;
   bool AteExtraComma = false;
+  AtomicOrdering Ordering = NotAtomic;
+  SynchronizationScope Scope = CrossThread;
   if (ParseTypeAndValue(Val, Loc, PFS) ||
       ParseToken(lltok::comma, "expected ',' after store operand") ||
       ParseTypeAndValue(Ptr, PtrLoc, PFS) ||
+      ParseScopeAndOrdering(isAtomic, Scope, Ordering) ||
       ParseOptionalCommaAlign(Alignment, AteExtraComma))
     return true;
 
@@ -3897,7 +3900,10 @@ int LLParser::ParseStore(Instruction *&Inst, PerFunctionState &PFS,
   if (cast<PointerType>(Ptr->getType())->getElementType() != Val->getType())
     return Error(Loc, "stored value and pointer type do not match");
 
-  Inst = new StoreInst(Val, Ptr, isVolatile, Alignment);
+  StoreInst *SI = new StoreInst(Val, Ptr, isVolatile, Alignment);
+  if (isAtomic)
+    SI->setAtomic(Ordering, Scope);
+  Inst = SI;
   return AteExtraComma ? InstExtraComma : InstNormal;
 }
 
