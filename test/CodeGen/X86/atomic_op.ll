@@ -112,10 +112,60 @@ entry:
 define void @test2(i32 addrspace(256)* nocapture %P) nounwind {
 entry:
 ; CHECK: lock
-; CEHCK:	cmpxchgl	%{{.*}}, %gs:(%{{.*}})
+; CHECK:	cmpxchgl	%{{.*}}, %gs:(%{{.*}})
 
   %0 = tail call i32 @llvm.atomic.cmp.swap.i32.p256i32(i32 addrspace(256)* %P, i32 0, i32 1)
   ret void
+}
+
+; CHECK: test_load
+define void @test_load(i32* %a, i64* %b) {
+; CHECK-NOT: fence
+; CHECK: movl
+; CHECK-NOT: fence
+       volatile atomic load i32* %a seq_cst;
+; CHECK-NOT: fence
+; CHECK-TODO: movq
+; CHECK-NOT-TODO: fence
+;       volatile atomic load i64* %b singlethread unordered;
+; CHECK: ret
+       ret void;
+}
+
+; CHECK: test_store
+define void @test_store(i32* %a, i64* %b) {
+; CHECK-NOT: fence
+; CHECK: mov
+; CHECK-NOT: fence
+       volatile atomic store i32 0, i32* %a unordered;
+; CHECK-NOT: fence
+; CHECK: mov
+; CHECK-NOT: fence
+       volatile atomic store i32 0, i32* %a monotonic;
+; CHECK-NOT: fence
+; CHECK: mov
+; CHECK-NOT: fence
+       volatile atomic store i32 0, i32* %a release;
+; CHECK-NOT: fence
+; CHECK: movl
+; CHECK-NOT: fence
+       volatile atomic store i32 0, i32* %a singlethread seq_cst;
+; CHECK-NOT: fence
+; CHECK-TODO: movq
+; CHECK-NOT-TODO: fence
+;       volatile atomic store i64 0, i64* %b singlethread seq_cst;
+; CHECK-NOT-TODO: fence
+; xchg is implicitly locked.
+; CHECK: xchg
+; CHECK-NOT: fence
+       volatile atomic store i32 0, i32* %a seq_cst;
+; CHECK-NOT: fence
+; CHECK-TODO: lock
+; CHECK-NEXT-TODO: cmpxchg8b
+; CHECK-NOT-TODO: fence
+;       volatile atomic store i64 0, i64* %b seq_cst;
+; CHECK: ret
+       ret void;
 }
 
 declare i32 @llvm.atomic.cmp.swap.i32.p256i32(i32 addrspace(256)* nocapture, i32, i32) nounwind

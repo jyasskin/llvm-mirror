@@ -588,19 +588,45 @@ public:
   /// takes 3 operands
   SDValue getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT, SDValue Chain,
                     SDValue Ptr, SDValue Cmp, SDValue Swp,
-                    MachinePointerInfo PtrInfo, unsigned Alignment=0);
+                    MachinePointerInfo PtrInfo,
+                    unsigned Alignment,
+                    AtomicOrdering Ordering,
+                    SynchronizationScope SynchScope);
   SDValue getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT, SDValue Chain,
                     SDValue Ptr, SDValue Cmp, SDValue Swp,
-                    MachineMemOperand *MMO);
+                    MachineMemOperand *MMO,
+                    AtomicOrdering Ordering,
+                    SynchronizationScope SynchScope);
 
   /// getAtomic - Gets a node for an atomic op, produces result and chain and
   /// takes 2 operands.
   SDValue getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT, SDValue Chain,
                     SDValue Ptr, SDValue Val, const Value* PtrVal,
-                    unsigned Alignment = 0);
+                    unsigned Alignment,
+                    AtomicOrdering Ordering,
+                    SynchronizationScope SynchScope);
   SDValue getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT, SDValue Chain,
                     SDValue Ptr, SDValue Val,
-                    MachineMemOperand *MMO);
+                    MachineMemOperand *MMO,
+                    AtomicOrdering Ordering,
+                    SynchronizationScope SynchScope);
+
+  /// Gets a node for an atomic load; produces result and chain, and takes 1
+  /// pointer operand.
+  SDValue getAtomicLoad(EVT MemVT, DebugLoc dl, SDValue Chain,
+                        SDValue Ptr, MachinePointerInfo PtrInfo,
+                        bool isVolatile, bool isNonTemporal, unsigned Alignment,
+                        AtomicOrdering Ordering,
+                        SynchronizationScope SynchScope);
+
+  /// Gets a node for an atomic load; produces chain, and takes value and
+  /// pointer operands.
+  SDValue getAtomicStore(SDValue Chain, DebugLoc dl,
+                         SDValue Val, SDValue Ptr, MachinePointerInfo PtrInfo,
+                         bool isVolatile,
+                         bool isNonTemporal, unsigned Alignment,
+                         AtomicOrdering Ordering,
+                         SynchronizationScope SynchScope);
 
   /// getMemIntrinsicNode - Creates a MemIntrinsicNode that may produce a
   /// result and takes a list of operands. Opcode may be INTRINSIC_VOID,

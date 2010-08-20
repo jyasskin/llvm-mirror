@@ -420,6 +420,8 @@ static void AddNodeIDCustom(FoldingSetNodeID &ID, const SDNode *N) {
     ID.AddInteger(ST->getRawSubclassData());
     break;
   }
+  case ISD::ATOMIC_LOAD:
+  case ISD::ATOMIC_STORE:
   case ISD::ATOMIC_CMP_SWAP:
   case ISD::ATOMIC_SWAP:
   case ISD::ATOMIC_LOAD_ADD:
@@ -472,15 +474,22 @@ static void AddNodeIDNode(FoldingSetNodeID &ID, const SDNode *N) {
 ///
 static inline unsigned
 encodeMemSDNodeFlags(int ConvType, ISD::MemIndexedMode AM, bool isVolatile,
-                     bool isNonTemporal) {
+                     bool isNonTemporal, AtomicOrdering Ordering,
+                     SynchronizationScope SynchScope) {
   assert((ConvType & 3) == ConvType &&
          "ConvType may not require more than 2 bits!");
   assert((AM & 7) == AM &&
          "AM may not require more than 3 bits!");
+  assert((Ordering & 15) == Ordering &&
+         "Ordering may not require more than 4 bits!");
+  assert((SynchScope & 1) == SynchScope &&
+         "SynchScope may not require more than 1 bit!");
   return ConvType |
          (AM << 2) |
          (isVolatile << 5) |
-         (isNonTemporal << 6);
+         (isNonTemporal << 6) |
+         (Ordering << 7) |
+         (SynchScope << 11) ;
 }
 
 //===----------------------------------------------------------------------===//
@@ -3670,11 +3679,12 @@ SDValue SelectionDAG::getMemset(SDValue Chain, DebugLoc dl, SDValue Dst,
                     Args, *this, dl);
   return CallResult.second;
 }
-
 SDValue SelectionDAG::getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT,
                                 SDValue Chain, SDValue Ptr, SDValue Cmp,
                                 SDValue Swp, MachinePointerInfo PtrInfo,
-                                unsigned Alignment) {
+                                unsigned Alignment,
+                                AtomicOrdering Ordering,
+                                SynchronizationScope SynchScope) {
   if (Alignment == 0)  // Ensure that codegen never sees alignment 0
     Alignment = getEVTAlignment(MemVT);
 
@@ -3687,13 +3697,16 @@ SDValue SelectionDAG::getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT,
   MachineMemOperand *MMO =
     MF.getMachineMemOperand(PtrInfo, Flags, MemVT.getStoreSize(), Alignment);
 
-  return getAtomic(Opcode, dl, MemVT, Chain, Ptr, Cmp, Swp, MMO);
+  return getAtomic(Opcode, dl, MemVT, Chain, Ptr, Cmp, Swp, MMO,
+                   Ordering, SynchScope);
 }
 
 SDValue SelectionDAG::getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT,
                                 SDValue Chain,
-                                SDValue Ptr, SDValue Cmp,
-                                SDValue Swp, MachineMemOperand *MMO) {
+                                SDValue Ptr, SDValue Cmp, SDValue Swp,
+                                MachineMemOperand *MMO,
+                                AtomicOrdering Ordering,
+                                SynchronizationScope SynchScope) {
   assert(Opcode == ISD::ATOMIC_CMP_SWAP && "Invalid Atomic Op");
   assert(Cmp.getValueType() == Swp.getValueType() && "Invalid Atomic Op Types");
 
@@ -3710,7 +3723,8 @@ SDValue SelectionDAG::getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT,
     return SDValue(E, 0);
   }
   SDNode *N = new (NodeAllocator) AtomicSDNode(Opcode, dl, VTs, MemVT, Chain,
-                                               Ptr, Cmp, Swp, MMO);
+                                               Ptr, Cmp, Swp, MMO,
+                                               Ordering, SynchScope);
   CSEMap.InsertNode(N, IP);
   AllNodes.push_back(N);
   return SDValue(N, 0);
@@ -3720,7 +3734,9 @@ SDValue SelectionDAG::getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT,
                                 SDValue Chain,
                                 SDValue Ptr, SDValue Val,
                                 const Value* PtrVal,
-                                unsigned Alignment) {
+                                unsigned Alignment,
+                                AtomicOrdering Ordering,
+                                SynchronizationScope SynchScope) {
   if (Alignment == 0)  // Ensure that codegen never sees alignment 0
     Alignment = getEVTAlignment(MemVT);
 
@@ -3734,13 +3750,16 @@ SDValue SelectionDAG::getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT,
     MF.getMachineMemOperand(MachinePointerInfo(PtrVal), Flags,
                             MemVT.getStoreSize(), Alignment);
 
-  return getAtomic(Opcode, dl, MemVT, Chain, Ptr, Val, MMO);
+  return getAtomic(Opcode, dl, MemVT, Chain, Ptr, Val, MMO,
+                   Ordering, SynchScope);
 }
 
 SDValue SelectionDAG::getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT,
                                 SDValue Chain,
                                 SDValue Ptr, SDValue Val,
-                                MachineMemOperand *MMO) {
+                                MachineMemOperand *MMO,
+                                AtomicOrdering Ordering,
+                                SynchronizationScope SynchScope) {
   assert((Opcode == ISD::ATOMIC_LOAD_ADD ||
           Opcode == ISD::ATOMIC_LOAD_SUB ||
           Opcode == ISD::ATOMIC_LOAD_AND ||
@@ -3767,7 +3786,8 @@ SDValue SelectionDAG::getAtomic(unsigned Opcode, DebugLoc dl, EVT MemVT,
     return SDValue(E, 0);
   }
   SDNode *N = new (NodeAllocator) AtomicSDNode(Opcode, dl, VTs, MemVT, Chain,
-                                               Ptr, Val, MMO);
+                                               Ptr, Val, MMO,
+                                               Ordering, SynchScope);
   CSEMap.InsertNode(N, IP);
   AllNodes.push_back(N);
   return SDValue(N, 0);
@@ -3949,7 +3969,8 @@ SelectionDAG::getLoad(ISD::MemIndexedMode AM, ISD::LoadExtType ExtType,
   AddNodeIDNode(ID, ISD::LOAD, VTs, Ops, 3);
   ID.AddInteger(MemVT.getRawBits());
   ID.AddInteger(encodeMemSDNodeFlags(ExtType, AM, MMO->isVolatile(),
-                                     MMO->isNonTemporal()));
+                                     MMO->isNonTemporal(), NotAtomic,
+                                     SingleThread));
   void *IP = 0;
   if (SDNode *E = CSEMap.FindNodeOrInsertPos(ID, IP)) {
     cast<LoadSDNode>(E)->refineAlignment(MMO);
@@ -4029,7 +4050,8 @@ SDValue SelectionDAG::getStore(SDValue Chain, DebugLoc dl, SDValue Val,
   AddNodeIDNode(ID, ISD::STORE, VTs, Ops, 4);
   ID.AddInteger(VT.getRawBits());
   ID.AddInteger(encodeMemSDNodeFlags(false, ISD::UNINDEXED, MMO->isVolatile(),
-                                     MMO->isNonTemporal()));
+                                     MMO->isNonTemporal(), NotAtomic,
+                                     SingleThread));
   void *IP = 0;
   if (SDNode *E = CSEMap.FindNodeOrInsertPos(ID, IP)) {
     cast<StoreSDNode>(E)->refineAlignment(MMO);
@@ -4090,7 +4112,8 @@ SDValue SelectionDAG::getTruncStore(SDValue Chain, DebugLoc dl, SDValue Val,
   AddNodeIDNode(ID, ISD::STORE, VTs, Ops, 4);
   ID.AddInteger(SVT.getRawBits());
   ID.AddInteger(encodeMemSDNodeFlags(true, ISD::UNINDEXED, MMO->isVolatile(),
-                                     MMO->isNonTemporal()));
+                                     MMO->isNonTemporal(), NotAtomic,
+                                     SingleThread));
   void *IP = 0;
   if (SDNode *E = CSEMap.FindNodeOrInsertPos(ID, IP)) {
     cast<StoreSDNode>(E)->refineAlignment(MMO);
@@ -4123,6 +4146,95 @@ SelectionDAG::getIndexedStore(SDValue OrigStore, DebugLoc dl, SDValue Base,
                                               ST->isTruncatingStore(),
                                               ST->getMemoryVT(),
                                               ST->getMemOperand());
+  CSEMap.InsertNode(N, IP);
+  AllNodes.push_back(N);
+  return SDValue(N, 0);
+}
+
+SDValue SelectionDAG::getAtomicLoad(EVT MemVT, DebugLoc dl, SDValue Chain,
+                                    SDValue Ptr, MachinePointerInfo PtrInfo,
+                                    bool isVolatile,
+                                    bool isNonTemporal, unsigned Alignment,
+                                    AtomicOrdering Ordering,
+                                    SynchronizationScope SynchScope) {
+  if (Alignment == 0)  // Ensure that codegen never sees alignment 0
+    Alignment = getEVTAlignment(MemVT);
+
+  // Check if the memory reference references a frame index
+  if (PtrInfo.V == 0)
+    PtrInfo = InferPointerInfo(Ptr);
+
+  MachineFunction &MF = getMachineFunction();
+  unsigned Flags = MachineMemOperand::MOLoad;
+  if (isVolatile)
+    Flags |= MachineMemOperand::MOVolatile;
+  if (isNonTemporal)
+    Flags |= MachineMemOperand::MONonTemporal;
+  MachineMemOperand *MMO =
+    MF.getMachineMemOperand(PtrInfo, Flags,
+                            MemVT.getStoreSize(), Alignment);
+
+  SDVTList VTs = getVTList(MemVT, MVT::Other);
+  FoldingSetNodeID ID;
+  SDValue Ops[] = {Chain, Ptr};
+  AddNodeIDNode(ID, ISD::ATOMIC_LOAD, VTs, Ops, 2);
+  ID.AddInteger(MemVT.getRawBits());
+  ID.AddInteger(encodeMemSDNodeFlags(ISD::NON_EXTLOAD, ISD::UNINDEXED,
+                                     MMO->isVolatile(),
+                                     MMO->isNonTemporal(), Ordering,
+                                     SynchScope));
+  void* IP = 0;
+  if (SDNode *E = CSEMap.FindNodeOrInsertPos(ID, IP)) {
+    cast<AtomicSDNode>(E)->refineAlignment(MMO);
+    return SDValue(E, 0);
+  }
+  SDNode *N = new (NodeAllocator) AtomicSDNode(ISD::ATOMIC_LOAD, dl, VTs, MemVT,
+                                               Chain, Ptr, MMO,
+                                               Ordering, SynchScope);
+  CSEMap.InsertNode(N, IP);
+  AllNodes.push_back(N);
+  return SDValue(N, 0);
+}
+
+SDValue SelectionDAG::getAtomicStore(SDValue Chain, DebugLoc dl,
+                                     SDValue Val, SDValue Ptr,
+                                     MachinePointerInfo PtrInfo,
+                                     bool isVolatile,
+                                     bool isNonTemporal, unsigned Alignment,
+                                     AtomicOrdering Ordering,
+                                     SynchronizationScope SynchScope) {
+  if (Alignment == 0)  // Ensure that codegen never sees alignment 0
+    Alignment = getEVTAlignment(Val.getValueType());
+
+  // Check if the memory reference references a frame index
+  if (PtrInfo.V == 0)
+    PtrInfo = InferPointerInfo(Ptr);
+
+  MachineFunction &MF = getMachineFunction();
+  unsigned Flags = MachineMemOperand::MOStore;
+  if (isVolatile)
+    Flags |= MachineMemOperand::MOVolatile;
+  if (isNonTemporal)
+    Flags |= MachineMemOperand::MONonTemporal;
+  MachineMemOperand *MMO =
+    MF.getMachineMemOperand(PtrInfo, Flags,
+                            Val.getValueType().getStoreSize(), Alignment);
+
+  EVT VT = Val.getValueType();
+
+  SDVTList VTs = getVTList(MVT::Other);
+  FoldingSetNodeID ID;
+  ID.AddInteger(VT.getRawBits());
+  SDValue Ops[] = {Chain, Ptr, Val};
+  AddNodeIDNode(ID, ISD::ATOMIC_STORE, VTs, Ops, 3);
+  void* IP = 0;
+  if (SDNode *E = CSEMap.FindNodeOrInsertPos(ID, IP)) {
+    cast<AtomicSDNode>(E)->refineAlignment(MMO);
+    return SDValue(E, 0);
+  }
+  SDNode *N = new (NodeAllocator) AtomicSDNode(ISD::ATOMIC_STORE, dl, VTs, VT,
+                                               Chain, Ptr, Val, MMO,
+                                               Ordering, SynchScope);
   CSEMap.InsertNode(N, IP);
   AllNodes.push_back(N);
   return SDValue(N, 0);
@@ -5375,7 +5487,8 @@ MemSDNode::MemSDNode(unsigned Opc, DebugLoc dl, SDVTList VTs, EVT memvt,
                      MachineMemOperand *mmo)
  : SDNode(Opc, dl, VTs), MemoryVT(memvt), MMO(mmo) {
   SubclassData = encodeMemSDNodeFlags(0, ISD::UNINDEXED, MMO->isVolatile(),
-                                      MMO->isNonTemporal());
+                                      MMO->isNonTemporal(), NotAtomic,
+                                      SingleThread);
   assert(isVolatile() == MMO->isVolatile() && "Volatile encoding error!");
   assert(isNonTemporal() == MMO->isNonTemporal() &&
          "Non-temporal encoding error!");
@@ -5383,12 +5496,13 @@ MemSDNode::MemSDNode(unsigned Opc, DebugLoc dl, SDVTList VTs, EVT memvt,
 }
 
 MemSDNode::MemSDNode(unsigned Opc, DebugLoc dl, SDVTList VTs,
-                     const SDValue *Ops, unsigned NumOps, EVT memvt, 
+                     const SDValue *Ops, unsigned NumOps, EVT memvt,
                      MachineMemOperand *mmo)
    : SDNode(Opc, dl, VTs, Ops, NumOps),
      MemoryVT(memvt), MMO(mmo) {
   SubclassData = encodeMemSDNodeFlags(0, ISD::UNINDEXED, MMO->isVolatile(),
-                                      MMO->isNonTemporal());
+                                      MMO->isNonTemporal(), NotAtomic,
+                                      SingleThread);
   assert(isVolatile() == MMO->isVolatile() && "Volatile encoding error!");
   assert(memvt.getStoreSize() == MMO->getSize() && "Size mismatch!");
 }
@@ -5575,6 +5689,8 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
 #endif
   case ISD::PREFETCH:      return "Prefetch";
   case ISD::MEMBARRIER:    return "MemBarrier";
+  case ISD::ATOMIC_LOAD:   return "AtomicLoad";
+  case ISD::ATOMIC_STORE:  return "AtomicStore";
   case ISD::ATOMIC_CMP_SWAP:    return "AtomicCmpSwap";
   case ISD::ATOMIC_SWAP:        return "AtomicSwap";
   case ISD::ATOMIC_LOAD_ADD:    return "AtomicLoadAdd";
@@ -5834,6 +5950,19 @@ const char *SDNode::getIndexedModeName(ISD::MemIndexedMode AM) {
   }
 }
 
+static const char *getOrderingName(AtomicOrdering Ordering) {
+  switch (Ordering) {
+  default: return "<unknown ordering>";
+  case NotAtomic: return "";
+  case Unordered: return "unordered";
+  case Monotonic: return "monotonic";
+  case Acquire: return "acquire";
+  case Release: return "release";
+  case AcquireRelease: return "acq_rel";
+  case SequentiallyConsistent: return "seq_cst";
+  }
+}
+
 std::string ISD::ArgFlagsTy::getArgFlagsString() {
   std::string S = "< ";
 
@@ -6002,10 +6131,20 @@ void SDNode::print_details(raw_ostream &OS, const SelectionDAG *G) const {
     const char *AM = getIndexedModeName(ST->getAddressingMode());
     if (*AM)
       OS << ", " << AM;
-    
+
     OS << ">";
   } else if (const MemSDNode* M = dyn_cast<MemSDNode>(this)) {
-    OS << "<" << *M->getMemOperand() << ">";
+    OS << "<" << *M->getMemOperand() ;
+
+    const char *Ordering = getOrderingName(M->getOrdering());
+    if (*Ordering) {
+      OS << ", ";
+      if (M->getSynchScope() == SingleThread)
+        OS << "singlethread ";
+      OS << Ordering;
+    }
+
+    OS << ">";
   } else if (const BlockAddressSDNode *BA =
                dyn_cast<BlockAddressSDNode>(this)) {
     OS << "<";

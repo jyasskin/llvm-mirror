@@ -567,6 +567,12 @@ namespace ISD {
     // and produces an output chain.
     MEMBARRIER,
 
+    // Val, OUTCHAIN = ATOMIC_LOAD(INCHAIN, ptr)
+    // OUTCHAIN = ATOMIC_STORE(INCHAIN, val, ptr)
+    // These correspond to atomic loads and stores, and have fields specifying
+    // their ordering and cross-thread-ness.
+    ATOMIC_LOAD, ATOMIC_STORE,
+
     // Val, OUTCHAIN = ATOMIC_CMP_SWAP(INCHAIN, ptr, cmp, swap)
     // this corresponds to the atomic.lcs intrinsic.
     // cmp is compared to *ptr, and if equal, swap is stored in *ptr.

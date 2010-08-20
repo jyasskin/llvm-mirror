@@ -2925,6 +2925,11 @@ void SelectionDAGBuilder::visitAlloca(const AllocaInst &I) {
 }
 
 void SelectionDAGBuilder::visitLoad(const LoadInst &I) {
+  if (I.isAtomic()) {
+    visitAtomicLoad(I);
+    return;
+  }
+
   const Value *SV = I.getOperand(0);
   SDValue Ptr = getValue(SV);
 
@@ -2984,7 +2989,45 @@ void SelectionDAGBuilder::visitLoad(const LoadInst &I) {
                            &Values[0], NumValues));
 }
 
+void SelectionDAGBuilder::visitAtomicLoad(const LoadInst &I) {
+  assert(I.isAtomic());
+
+  const Value *SV = I.getOperand(0);
+  SDValue Ptr = getValue(SV);
+
+  const Type *IrTy = I.getType();
+  EVT Ty = TLI.getValueType(IrTy);
+
+  bool isVolatile = I.isVolatile();
+  bool isNonTemporal = I.getMetadata("nontemporal") != 0;
+  unsigned Alignment = I.getAlignment();
+  AtomicOrdering Ordering = I.getOrdering();
+  SynchronizationScope SynchScope = I.getSynchScope();
+
+  // Serialize atomic loads with other side effects.  FIXME: Not
+  // all atomic loads need to be completely serialized.
+  SDValue Root = getRoot();
+
+  EVT PtrVT = Ptr.getValueType();
+  SDValue Value = DAG.getAtomicLoad(Ty, getCurDebugLoc(), Root,
+                                    Ptr, MachinePointerInfo(SV), isVolatile,
+                                    isNonTemporal, Alignment,
+                                    Ordering, SynchScope);
+  SDValue Chain = Value.getValue(1);
+
+  // Serialize atomic loads with other side effects.  FIXME: Not
+  // all atomic loads need to be completely serialized.
+  DAG.setRoot(Chain);
+
+  setValue(&I, Value);
+}
+
 void SelectionDAGBuilder::visitStore(const StoreInst &I) {
+  if (I.isAtomic()) {
+    visitAtomicStore(I);
+    return;
+  }
+
   const Value *SrcV = I.getOperand(0);
   const Value *PtrV = I.getOperand(1);
 
@@ -3019,6 +3062,32 @@ void SelectionDAGBuilder::visitStore(const StoreInst &I) {
 
   DAG.setRoot(DAG.getNode(ISD::TokenFactor, getCurDebugLoc(),
                           MVT::Other, &Chains[0], NumValues));
+}
+
+void SelectionDAGBuilder::visitAtomicStore(const StoreInst &I) {
+  assert(I.isAtomic());
+
+  const Value *SrcV = I.getOperand(0);
+  const Value *PtrV = I.getOperand(1);
+
+  // Get the lowered operands.
+  SDValue Src = getValue(SrcV);
+  SDValue Ptr = getValue(PtrV);
+
+  SDValue Root = getRoot();
+  EVT PtrVT = Ptr.getValueType();
+  bool isVolatile = I.isVolatile();
+  bool isNonTemporal = I.getMetadata("nontemporal") != 0;
+  unsigned Alignment = I.getAlignment();
+  AtomicOrdering Ordering = I.getOrdering();
+  SynchronizationScope SynchScope = I.getSynchScope();
+
+  SDValue Chain = DAG.getAtomicStore(Root, getCurDebugLoc(),
+                                     Src, Ptr, MachinePointerInfo(PtrV),
+                                     isVolatile, isNonTemporal, Alignment,
+                                     Ordering, SynchScope);
+
+  DAG.setRoot(Chain);
 }
 
 void SelectionDAGBuilder::visitAtomicCmpXchg(const AtomicCmpXchgInst &I) {
@@ -3168,7 +3237,7 @@ SelectionDAGBuilder::implVisitBinaryAtomic(const CallInst& I,
                   Root,
                   getValue(I.getArgOperand(0)),
                   getValue(I.getArgOperand(1)),
-                  I.getArgOperand(0));
+                  I.getArgOperand(0), 0, Monotonic, CrossThread);
   setValue(&I, L);
   DAG.setRoot(L.getValue(1));
   return 0;
@@ -4640,7 +4709,8 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
                     getValue(I.getArgOperand(0)),
                     getValue(I.getArgOperand(1)),
                     getValue(I.getArgOperand(2)),
-                    MachinePointerInfo(I.getArgOperand(0)));
+                    MachinePointerInfo(I.getArgOperand(0)), 0,
+                    Monotonic, CrossThread);
     setValue(&I, L);
     DAG.setRoot(L.getValue(1));
     return 0;

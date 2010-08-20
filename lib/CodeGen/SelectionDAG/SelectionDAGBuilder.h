@@ -496,7 +496,9 @@ private:
 
   void visitAlloca(const AllocaInst &I);
   void visitLoad(const LoadInst &I);
+  void visitAtomicLoad(const LoadInst &I);
   void visitStore(const StoreInst &I);
+  void visitAtomicStore(const StoreInst &I);
   void visitAtomicCmpXchg(const AtomicCmpXchgInst &I);
   void visitFence(const FenceInst &I);
   void visitPHI(const PHINode &I);

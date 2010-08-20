@@ -1144,6 +1144,64 @@ def CMPXCHG16B : RI<0xC7, MRM1m, (outs), (ins i128mem:$dst),
 
 
 
+// All naturally aligned x86 mov instructions are
+// sequentially-consistent loads.
+def aligned_atomic_load_8 : PatFrag<(ops node:$ptr),
+                                    (atomic_load node:$ptr), [{
+  return cast<AtomicSDNode>(N)->getMemoryVT().getStoreSize() == 1 &&
+         cast<AtomicSDNode>(N)->getAlignment() >= 1;
+}]>;
+def aligned_atomic_load_16 : PatFrag<(ops node:$ptr),
+                                     (atomic_load node:$ptr), [{
+  return cast<AtomicSDNode>(N)->getMemoryVT().getStoreSize() == 2 &&
+         cast<AtomicSDNode>(N)->getAlignment() >= 2;
+}]>;
+def aligned_atomic_load_32 : PatFrag<(ops node:$ptr),
+                                     (atomic_load node:$ptr), [{
+  return cast<AtomicSDNode>(N)->getMemoryVT().getStoreSize() == 4 &&
+         cast<AtomicSDNode>(N)->getAlignment() >= 4;
+}]>;
+def aligned_atomic_load_64 : PatFrag<(ops node:$ptr),
+                                     (atomic_load node:$ptr), [{
+  return cast<AtomicSDNode>(N)->getMemoryVT().getStoreSize() == 8 &&
+         cast<AtomicSDNode>(N)->getAlignment() >= 8;
+}]>;
+def : Pat<(aligned_atomic_load_8 addr:$src), (MOV8rm addr:$src)>;
+def : Pat<(aligned_atomic_load_16 addr:$src), (MOV16rm addr:$src)>;
+def : Pat<(aligned_atomic_load_32 addr:$src), (MOV32rm addr:$src)>;
+
+// Ordinary aligned storing movs on x86 are acquire+release, but not
+// sequentially-consistent.  xchg instructions that go to memory are
+// implicitly locked, and all locked instructions are
+// sequentially-consistent, whether or not they're aligned.
+def atomic_store_with_xchg : PatFrag<(ops node:$val, node:$ptr),
+                                     (atomic_store node:$val, node:$ptr), [{
+  AtomicSDNode *AN = cast<AtomicSDNode>(N);
+  return (AN->getOrdering() == SequentiallyConsistent &&
+          AN->getSynchScope() == CrossThread) ||
+         AN->getAlignment() % AN->getMemoryVT().getStoreSize() != 0;
+}]>;
+def atomic_store_with_mov : PatFrag<(ops node:$val, node:$ptr),
+                                    (atomic_store node:$val, node:$ptr), [{
+  return (cast<AtomicSDNode>(N)->getOrdering() != SequentiallyConsistent ||
+          cast<AtomicSDNode>(N)->getSynchScope() == SingleThread) &&
+         (cast<MemSDNode>(N)->getAlignment() %
+          cast<MemSDNode>(N)->getMemoryVT().getStoreSize()) == 0;
+}]>;
+def : Pat<(atomic_store_with_xchg GR32:$val, addr:$ptr),
+          (XCHG32rm GR32:$val, addr:$ptr)>;
+def : Pat<(atomic_store_with_xchg GR16:$val, addr:$ptr),
+          (XCHG16rm GR16:$val, addr:$ptr)>;
+def : Pat<(atomic_store_with_xchg GR8:$val, addr:$ptr),
+          (XCHG8rm GR8:$val, addr:$ptr)>;
+def : Pat<(atomic_store_with_mov GR32:$val, addr:$ptr),
+          (MOV32mr GR32:$val, addr:$ptr)>;
+def : Pat<(atomic_store_with_mov GR16:$val, addr:$ptr),
+          (MOV16mr GR16:$val, addr:$ptr)>;
+def : Pat<(atomic_store_with_mov GR8:$val, addr:$ptr),
+          (MOV8mr GR8:$val, addr:$ptr)>;
+
+
 // Lock instruction prefix
 def LOCK_PREFIX : I<0xF0, RawFrm, (outs),  (ins), "lock", []>;
 

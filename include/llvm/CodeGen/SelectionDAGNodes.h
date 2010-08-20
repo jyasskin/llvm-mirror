@@ -20,6 +20,7 @@
 #define LLVM_CODEGEN_SELECTIONDAGNODES_H
 
 #include "llvm/Constants.h"
+#include "llvm/Instructions.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/ilist_node.h"
@@ -898,6 +899,13 @@ public:
   bool isVolatile() const { return (SubclassData >> 5) & 1; }
   bool isNonTemporal() const { return (SubclassData >> 6) & 1; }
 
+  AtomicOrdering getOrdering() const {
+    return AtomicOrdering((SubclassData >> 7) & 15);
+  }
+  SynchronizationScope getSynchScope() const {
+    return SynchronizationScope((SubclassData >> 11) & 1);
+  }
+
   /// Returns the SrcValue and offset that describes the location of the access
   const Value *getSrcValue() const { return MMO->getValue(); }
   int64_t getSrcValueOffset() const { return MMO->getOffset(); }
@@ -933,6 +941,8 @@ public:
     // with either an intrinsic or a target opcode.
     return N->getOpcode() == ISD::LOAD                ||
            N->getOpcode() == ISD::STORE               ||
+           N->getOpcode() == ISD::ATOMIC_LOAD         ||
+           N->getOpcode() == ISD::ATOMIC_STORE        ||
            N->getOpcode() == ISD::ATOMIC_CMP_SWAP     ||
            N->getOpcode() == ISD::ATOMIC_SWAP         ||
            N->getOpcode() == ISD::ATOMIC_LOAD_ADD     ||
@@ -954,6 +964,23 @@ public:
 class AtomicSDNode : public MemSDNode {
   SDUse Ops[4];
 
+  void InitAtomic(AtomicOrdering Ordering, SynchronizationScope SynchScope) {
+    // This must match encodeMemSDNodeFlags() in SelectionDAG.cpp.
+    assert((Ordering & 15) == Ordering &&
+           "Ordering may not require more than 4 bits!");
+    assert((SynchScope & 1) == SynchScope &&
+           "SynchScope may not require more than 1 bit!");
+    SubclassData |= Ordering << 7;
+    SubclassData |= SynchScope << 11;
+    assert(getOrdering() == Ordering && "Ordering encoding error!");
+    assert(getSynchScope() == SynchScope && "Synch-scope encoding error!");
+
+    assert((getOpcode() == ISD::ATOMIC_STORE || readMem()) &&
+           "Atomic MachineMemOperand is not a load!");
+    assert((getOpcode() == ISD::ATOMIC_LOAD || writeMem()) &&
+           "Atomic MachineMemOperand is not a store!");
+  }
+
 public:
   // Opc:   opcode for atomic
   // VTL:    value type list
@@ -965,23 +992,35 @@ public:
   // Align:  alignment of memory
   AtomicSDNode(unsigned Opc, DebugLoc dl, SDVTList VTL, EVT MemVT,
                SDValue Chain, SDValue Ptr,
-               SDValue Cmp, SDValue Swp, MachineMemOperand *MMO)
+               SDValue Cmp, SDValue Swp, MachineMemOperand *MMO,
+               AtomicOrdering Ordering, SynchronizationScope SynchScope)
     : MemSDNode(Opc, dl, VTL, MemVT, MMO) {
-    assert(readMem() && "Atomic MachineMemOperand is not a load!");
-    assert(writeMem() && "Atomic MachineMemOperand is not a store!");
+    InitAtomic(Ordering, SynchScope);
     InitOperands(Ops, Chain, Ptr, Cmp, Swp);
   }
   AtomicSDNode(unsigned Opc, DebugLoc dl, SDVTList VTL, EVT MemVT,
                SDValue Chain, SDValue Ptr,
-               SDValue Val, MachineMemOperand *MMO)
+               SDValue Val, MachineMemOperand *MMO,
+               AtomicOrdering Ordering, SynchronizationScope SynchScope)
     : MemSDNode(Opc, dl, VTL, MemVT, MMO) {
-    assert(readMem() && "Atomic MachineMemOperand is not a load!");
-    assert(writeMem() && "Atomic MachineMemOperand is not a store!");
+    InitAtomic(Ordering, SynchScope);
     InitOperands(Ops, Chain, Ptr, Val);
   }
 
+  // For Load.
+  AtomicSDNode(unsigned Opc, DebugLoc dl, SDVTList VTL, EVT MemVT,
+               SDValue Chain, SDValue Ptr, MachineMemOperand *MMO,
+               AtomicOrdering Ordering, SynchronizationScope SynchScope)
+    : MemSDNode(Opc, dl, VTL, MemVT, MMO) {
+    InitAtomic(Ordering, SynchScope);
+    InitOperands(Ops, Chain, Ptr);
+  }
+
   const SDValue &getBasePtr() const { return getOperand(1); }
-  const SDValue &getVal() const { return getOperand(2); }
+  const SDValue &getVal() const {
+    assert(getOpcode() != ISD::ATOMIC_LOAD && "Loads have no input value.");
+    return getOperand(2);
+  }
 
   bool isCompareAndSwap() const {
     unsigned Op = getOpcode();
@@ -991,7 +1030,9 @@ public:
   // Methods to support isa and dyn_cast
   static bool classof(const AtomicSDNode *) { return true; }
   static bool classof(const SDNode *N) {
-    return N->getOpcode() == ISD::ATOMIC_CMP_SWAP     ||
+    return N->getOpcode() == ISD::ATOMIC_LOAD         ||
+           N->getOpcode() == ISD::ATOMIC_STORE        ||
+           N->getOpcode() == ISD::ATOMIC_CMP_SWAP     ||
            N->getOpcode() == ISD::ATOMIC_SWAP         ||
            N->getOpcode() == ISD::ATOMIC_LOAD_ADD     ||
            N->getOpcode() == ISD::ATOMIC_LOAD_SUB     ||

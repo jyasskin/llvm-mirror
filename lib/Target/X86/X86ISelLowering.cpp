@@ -8608,7 +8608,8 @@ SDValue X86TargetLowering::LowerLOAD_SUB(SDValue Op, SelectionDAG &DAG) const {
                        Node->getOperand(0),
                        Node->getOperand(1), negOp,
                        cast<AtomicSDNode>(Node)->getSrcValue(),
-                       cast<AtomicSDNode>(Node)->getAlignment());
+                       cast<AtomicSDNode>(Node)->getAlignment(),
+                       Monotonic, CrossThread);
 }
 
 /// LowerOperation - Provide custom lowering hooks for some operations.
