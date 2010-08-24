@@ -452,7 +452,8 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(StoreInst, Value)
 ///
 class AtomicCmpXchgInst : public Instruction {
   void *operator new(size_t, unsigned);  // DO NOT IMPLEMENT
-  void AssertOK();
+  void Init(Value *Ptr, Value *Cmp, Value *NewVal,
+            AtomicOrdering Ordering, SynchronizationScope SynchScope);
 protected:
   virtual AtomicCmpXchgInst *clone_impl() const;
 public:
@@ -464,7 +465,7 @@ public:
                     AtomicOrdering Ordering, SynchronizationScope SynchScope,
                     Instruction *InsertBefore = 0);
   AtomicCmpXchgInst(Value *Ptr, Value *Cmp, Value *NewVal,
-                    AtomicOrdering Ordering, SynchronizationScope CrossThread,
+                    AtomicOrdering Ordering, SynchronizationScope SynchScope,
                     BasicBlock *InsertAtEnd);
 
   /// isVolatile - Return true if this is a cmpxchg from a volatile memory
@@ -529,21 +530,24 @@ public:
       .getSynchScope();
   }
 
-  Value *getValueOperand() { return getOperand(0); }
-  const Value *getValueOperand() const { return getOperand(0); }
-  
-  Value *getPointerOperand() { return getOperand(1); }
-  const Value *getPointerOperand() const { return getOperand(1); }
-  static unsigned getPointerOperandIndex() { return 1U; }
+  Value *getPointerOperand() { return getOperand(0); }
+  const Value *getPointerOperand() const { return getOperand(0); }
+  static unsigned getPointerOperandIndex() { return 0U; }
 
+  Value *getCompareOperand() { return getOperand(1); }
+  const Value *getCompareOperand() const { return getOperand(1); }
+  
+  Value *getNewValOperand() { return getOperand(2); }
+  const Value *getNewValOperand() const { return getOperand(2); }
+  
   unsigned getPointerAddressSpace() const {
     return cast<PointerType>(getPointerOperand()->getType())->getAddressSpace();
   }
   
   // Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const StoreInst *) { return true; }
+  static inline bool classof(const AtomicCmpXchgInst *) { return true; }
   static inline bool classof(const Instruction *I) {
-    return I->getOpcode() == Instruction::Store;
+    return I->getOpcode() == Instruction::AtomicCmpXchg;
   }
   static inline bool classof(const Value *V) {
     return isa<Instruction>(V) && classof(cast<Instruction>(V));

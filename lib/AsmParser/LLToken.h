@@ -121,7 +121,8 @@ namespace lltok {
     kw_ret, kw_br, kw_switch, kw_indirectbr, kw_invoke, kw_unwind,
     kw_unreachable,
 
-    kw_malloc, kw_alloca, kw_free, kw_load, kw_store, kw_getelementptr,
+    kw_malloc, kw_alloca, kw_free, kw_load, kw_store, kw_cmpxchg, kw_fence,
+    kw_getelementptr,
 
     kw_extractelement, kw_insertelement, kw_shufflevector, kw_getresult,
     kw_extractvalue, kw_insertvalue, kw_blockaddress,

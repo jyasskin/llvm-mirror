@@ -670,6 +670,8 @@ lltok::Kind LLLexer::LexIdentifier() {
   INSTKEYWORD(alloca,      Alloca);
   INSTKEYWORD(load,        Load);
   INSTKEYWORD(store,       Store);
+  INSTKEYWORD(cmpxchg,     AtomicCmpXchg);
+  INSTKEYWORD(fence,       Fence);
   INSTKEYWORD(getelementptr, GetElementPtr);
 
   INSTKEYWORD(extractelement, ExtractElement);

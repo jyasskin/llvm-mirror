@@ -3100,6 +3100,7 @@ int LLParser::ParseInstruction(Instruction *&Inst, BasicBlock *BB,
   case lltok::kw_free:           return ParseFree(Inst, PFS, BB);
   case lltok::kw_load:           return ParseLoad(Inst, PFS, false, false);
   case lltok::kw_store:          return ParseStore(Inst, PFS, false, false);
+  case lltok::kw_cmpxchg:        return ParseCmpXchg(Inst, PFS, false);
   case lltok::kw_volatile: {
     bool atomic = false;
     if (EatIfPresent(lltok::kw_atomic))
@@ -3108,6 +3109,8 @@ int LLParser::ParseInstruction(Instruction *&Inst, BasicBlock *BB,
       return ParseLoad(Inst, PFS, true, atomic);
     else if (EatIfPresent(lltok::kw_store))
       return ParseStore(Inst, PFS, true, atomic);
+    else if (EatIfPresent(lltok::kw_cmpxchg))
+      return ParseCmpXchg(Inst, PFS, true);
     else
       return TokError("expected 'load' or 'store'");
   }
@@ -3908,6 +3911,46 @@ int LLParser::ParseStore(Instruction *&Inst, PerFunctionState &PFS,
   if (isAtomic)
     SI->setAtomic(Ordering, Scope);
   Inst = SI;
+  return AteExtraComma ? InstExtraComma : InstNormal;
+}
+
+/// ParseCmpXchg
+///   ::= 'volatile'? 'cmpxchg' TypeAndValue ',' TypeAndValue ',' TypeAndValue
+///        'singlethread'? AtomicOrdering (',' 'align' i32)?
+int LLParser::ParseCmpXchg(Instruction *&Inst, PerFunctionState &PFS,
+                           bool isVolatile) {
+  Value *Ptr, *Cmp, *New; LocTy PtrLoc, CmpLoc, NewLoc;
+  unsigned Alignment = 0;
+  bool AteExtraComma = false;
+  AtomicOrdering Ordering = NotAtomic;
+  SynchronizationScope Scope = CrossThread;
+  if (ParseTypeAndValue(Ptr, PtrLoc, PFS) ||
+      ParseToken(lltok::comma, "expected ',' after cmpxchg address") ||
+      ParseTypeAndValue(Cmp, CmpLoc, PFS) ||
+      ParseToken(lltok::comma, "expected ',' after cmpxchg cmp operand") ||
+      ParseTypeAndValue(New, NewLoc, PFS) ||
+      ParseScopeAndOrdering(true /*Always atomic*/, Scope, Ordering) ||
+      ParseOptionalCommaAlign(Alignment, AteExtraComma))
+    return true;
+
+  if (!Ptr->getType()->isPointerTy())
+    return Error(PtrLoc, "cmpxchg operand must be a pointer");
+  if (cast<PointerType>(Ptr->getType())->getElementType() != Cmp->getType())
+    return Error(CmpLoc, "compare value and pointer type do not match");
+  if (cast<PointerType>(Ptr->getType())->getElementType() != New->getType())
+    return Error(NewLoc, "new value and pointer type do not match");
+  if (!Cmp->getType()->isFirstClassType())
+    return Error(CmpLoc, "cmpxchg operand must be a first class value");
+  if (Ordering == NotAtomic)
+    return Error(NewLoc, "cmpxchg must be atomic");
+
+  AtomicCmpXchgInst *CXI =
+    new AtomicCmpXchgInst(Ptr, Cmp, New, Ordering, Scope);
+  if (isVolatile)
+    CXI->setVolatile(true);
+  if (Alignment != 0)
+    CXI->setAlignment(Alignment);
+  Inst = CXI;
   return AteExtraComma ? InstExtraComma : InstNormal;
 }
 

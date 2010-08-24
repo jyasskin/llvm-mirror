@@ -49,7 +49,6 @@ protected:
       return Errors.getMessage();
   }
 
-private:
   LLVMContext Context;
 };
 

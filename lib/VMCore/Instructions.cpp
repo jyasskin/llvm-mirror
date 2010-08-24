@@ -1140,6 +1140,56 @@ StoreInst::StoreInst(Value *val, Value *addr, bool isVolatile,
 }
 
 //===----------------------------------------------------------------------===//
+//                       AtomicCmpXchgInst Implementation
+//===----------------------------------------------------------------------===//
+
+void AtomicCmpXchgInst::Init(Value *Ptr, Value *Cmp, Value *NewVal,
+                             AtomicOrdering Ordering,
+                             SynchronizationScope SynchScope) {
+  Op<0>() = Ptr;
+  Op<1>() = Cmp;
+  Op<2>() = NewVal;
+  setOrdering(Ordering);
+  setSynchScope(SynchScope);
+
+  assert(getOperand(0) && getOperand(1) && getOperand(2) &&
+         "All operands must be non-null!");
+  assert(getOperand(0)->getType()->isPointerTy() &&
+         "Ptr must have pointer type!");
+  assert(getOperand(1)->getType() ==
+                 cast<PointerType>(getOperand(0)->getType())->getElementType()
+         && "Ptr must be a pointer to Cmp type!");
+  assert(getOperand(2)->getType() ==
+                 cast<PointerType>(getOperand(0)->getType())->getElementType()
+         && "Ptr must be a pointer to NewVal type!");
+  assert(Ordering != NotAtomic &&
+         "AtomicCmpXchg instructions must be atomic!");
+}
+
+AtomicCmpXchgInst::AtomicCmpXchgInst(Value *Ptr, Value *Cmp, Value *NewVal,
+                                     AtomicOrdering Ordering,
+                                     SynchronizationScope SynchScope,
+                                     Instruction *InsertBefore)
+  : Instruction(Cmp->getType(), AtomicCmpXchg,
+                OperandTraits<AtomicCmpXchgInst>::op_begin(this),
+                OperandTraits<AtomicCmpXchgInst>::operands(this),
+                InsertBefore) {
+  Init(Ptr, Cmp, NewVal, Ordering, SynchScope);
+}
+
+AtomicCmpXchgInst::AtomicCmpXchgInst(Value *Ptr, Value *Cmp, Value *NewVal,
+                                     AtomicOrdering Ordering,
+                                     SynchronizationScope SynchScope,
+                                     BasicBlock *InsertAtEnd)
+  : Instruction(Cmp->getType(), AtomicCmpXchg,
+                OperandTraits<AtomicCmpXchgInst>::op_begin(this),
+                OperandTraits<AtomicCmpXchgInst>::operands(this),
+                InsertAtEnd) {
+  Init(Ptr, Cmp, NewVal, Ordering, SynchScope);
+}
+
+
+//===----------------------------------------------------------------------===//
 //                       GetElementPtrInst Implementation
 //===----------------------------------------------------------------------===//
 
@@ -3278,6 +3328,15 @@ LoadInst *LoadInst::clone_impl() const {
 StoreInst *StoreInst::clone_impl() const {
   return new StoreInst(getOperand(0), getOperand(1),
                        isVolatile(), getAlignment());
+}
+
+AtomicCmpXchgInst *AtomicCmpXchgInst::clone_impl() const {
+  AtomicCmpXchgInst *Result =
+    new AtomicCmpXchgInst(getOperand(0), getOperand(1), getOperand(2),
+                          getOrdering(), getSynchScope());
+  Result->setVolatile(isVolatile());
+  Result->setAlignment(getAlignment());
+  return Result;
 }
 
 TruncInst *TruncInst::clone_impl() const {
