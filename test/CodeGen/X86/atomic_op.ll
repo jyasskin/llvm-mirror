@@ -168,6 +168,47 @@ define void @test_store(i32* %a, i64* %b) {
        ret void;
 }
 
+; CHECK: test_cmpxchg
+define void @test_cmpxchg(i32* %a, i64* %b) {
+; CHECK-NOT: fence
+; CHECK: movl $1, %eax
+; CHECK: lock
+; CHECK-NEXT: cmpxchgl
+; CHECK-NOT: fence
+       volatile cmpxchg i32* %a, i32 1, i32 2 unordered;
+; CHECK-NOT: fence
+; CHECK: lock
+; CHECK-NEXT: cmpxchgl
+; CHECK-NOT: fence
+       volatile cmpxchg i32* %a, i32 3, i32 4 seq_cst;
+; CHECK-NOT: fence
+; CHECK-NOT-TODO: lock
+; CHECK: cmpxchgl
+; CHECK-NOT: fence
+       volatile cmpxchg i32* %a, i32 5, i32 6 singlethread seq_cst;
+
+; CHECK-NOT: fence
+; CHECK: lock
+; CHECK-NEXT: cmpxchg8b
+; CHECK-NOT: fence
+       volatile cmpxchg i64* %b, i64 1, i64 2 unordered;
+
+; CHECK-NOT: fence
+; CHECK: lock
+; CHECK-NEXT: cmpxchg8b
+; CHECK-NOT: fence
+       volatile cmpxchg i64* %b, i64 3, i64 4 seq_cst;
+
+; CHECK-NOT: fence
+; CHECK-NOT-TODO: lock
+; CHECK: cmpxchg8b
+; CHECK-NOT: fence
+       volatile cmpxchg i64* %b, i64 5, i64 6 singlethread seq_cst;
+
+; CHECK: ret
+       ret void;
+}
+
 declare i32 @llvm.atomic.cmp.swap.i32.p256i32(i32 addrspace(256)* nocapture, i32, i32) nounwind
 
 declare i32 @llvm.atomic.load.add.i32.p0i32(i32*, i32) nounwind 

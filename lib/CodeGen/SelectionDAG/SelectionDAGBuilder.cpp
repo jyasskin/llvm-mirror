@@ -3091,7 +3091,18 @@ void SelectionDAGBuilder::visitAtomicStore(const StoreInst &I) {
 }
 
 void SelectionDAGBuilder::visitAtomicCmpXchg(const AtomicCmpXchgInst &I) {
-  llvm_unreachable("Not implemented yet.");
+  SDValue Root = getRoot();
+  SDValue L =
+    DAG.getAtomic(ISD::ATOMIC_CMP_SWAP, getCurDebugLoc(),
+                  getValue(I.getCompareOperand()).getValueType().getSimpleVT(),
+                  Root,
+                  getValue(I.getPointerOperand()),
+                  getValue(I.getCompareOperand()),
+                  getValue(I.getNewValOperand()),
+                  MachinePointerInfo(I.getPointerOperand()), I.getAlignment(),
+                  I.getOrdering(), I.getSynchScope());
+  setValue(&I, L);
+  DAG.setRoot(L.getValue(1));
 }
 
 void SelectionDAGBuilder::visitFence(const FenceInst &I) {
