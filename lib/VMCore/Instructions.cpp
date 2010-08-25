@@ -1188,6 +1188,33 @@ AtomicCmpXchgInst::AtomicCmpXchgInst(Value *Ptr, Value *Cmp, Value *NewVal,
   Init(Ptr, Cmp, NewVal, Ordering, SynchScope);
 }
 
+//===----------------------------------------------------------------------===//
+//                       FenceInst Implementation
+//===----------------------------------------------------------------------===//
+
+void FenceInst::Init(AtomicOrdering Ordering, SynchronizationScope SynchScope) {
+  setOrdering(Ordering);
+  setSynchScope(SynchScope);
+}
+
+FenceInst::FenceInst(LLVMContext &C,
+                     AtomicOrdering Ordering,
+                     SynchronizationScope SynchScope,
+                     Instruction *InsertBefore)
+  : Instruction(Type::getVoidTy(C), Fence,
+                0, 0, InsertBefore) {
+  Init(Ordering, SynchScope);
+}
+
+FenceInst::FenceInst(LLVMContext &C,
+                     AtomicOrdering Ordering,
+                     SynchronizationScope SynchScope,
+                     BasicBlock *InsertAtEnd)
+  : Instruction(Type::getVoidTy(C), Fence,
+                0, 0, InsertAtEnd) {
+  Init(Ordering, SynchScope);
+}
+
 
 //===----------------------------------------------------------------------===//
 //                       GetElementPtrInst Implementation
@@ -3337,6 +3364,10 @@ AtomicCmpXchgInst *AtomicCmpXchgInst::clone_impl() const {
   Result->setVolatile(isVolatile());
   Result->setAlignment(getAlignment());
   return Result;
+}
+
+FenceInst *FenceInst::clone_impl() const {
+  return new FenceInst(getContext(), getOrdering(), getSynchScope());
 }
 
 TruncInst *TruncInst::clone_impl() const {

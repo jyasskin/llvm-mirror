@@ -3101,6 +3101,7 @@ int LLParser::ParseInstruction(Instruction *&Inst, BasicBlock *BB,
   case lltok::kw_load:           return ParseLoad(Inst, PFS, false, false);
   case lltok::kw_store:          return ParseStore(Inst, PFS, false, false);
   case lltok::kw_cmpxchg:        return ParseCmpXchg(Inst, PFS, false);
+  case lltok::kw_fence:          return ParseFence(Inst, PFS);
   case lltok::kw_volatile: {
     bool atomic = false;
     if (EatIfPresent(lltok::kw_atomic))
@@ -3952,6 +3953,23 @@ int LLParser::ParseCmpXchg(Instruction *&Inst, PerFunctionState &PFS,
     CXI->setAlignment(Alignment);
   Inst = CXI;
   return AteExtraComma ? InstExtraComma : InstNormal;
+}
+
+/// ParseFence
+///   ::= 'fence' 'singlethread'? AtomicOrdering
+int LLParser::ParseFence(Instruction *&Inst, PerFunctionState &PFS) {
+  AtomicOrdering Ordering = NotAtomic;
+  SynchronizationScope Scope = CrossThread;
+  if (ParseScopeAndOrdering(true /*Always atomic*/, Scope, Ordering))
+    return true;
+
+  if (Ordering == Unordered)
+    return TokError("fence cannot be unordered");
+  if (Ordering == Monotonic)
+    return TokError("fence cannot be monotonic");
+
+  Inst = new FenceInst(Context, Ordering, Scope);
+  return InstNormal;
 }
 
 /// ParseGetResult

@@ -368,6 +368,7 @@ namespace llvm {
     int ParseStore(Instruction *&I, PerFunctionState &PFS,
                    bool isVolatile, bool isAtomic);
     int ParseCmpXchg(Instruction *&I, PerFunctionState &PFS, bool isVolatile);
+    int ParseFence(Instruction *&I, PerFunctionState &PFS);
     bool ParseGetResult(Instruction *&I, PerFunctionState &PFS);
     int ParseGetElementPtr(Instruction *&I, PerFunctionState &PFS);
     int ParseExtractValue(Instruction *&I, PerFunctionState &PFS);

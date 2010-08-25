@@ -574,7 +574,7 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(AtomicCmpXchgInst, Value)
 ///
 class FenceInst : public Instruction {
   void *operator new(size_t, unsigned);  // DO NOT IMPLEMENT
-  void AssertOK();
+  void Init(AtomicOrdering Ordering, SynchronizationScope SynchScope);
 protected:
   virtual FenceInst *clone_impl() const;
 public:
@@ -585,10 +585,11 @@ public:
 
   // Ordering may only be Acquire, Release, AcquireRelease, or
   // SequentiallyConsistent.
-  FenceInst(AtomicOrdering Ordering,
+  FenceInst(LLVMContext &C, AtomicOrdering Ordering,
             SynchronizationScope SynchScope = CrossThread,
             Instruction *InsertBefore = 0);
-  FenceInst(AtomicOrdering Ordering, SynchronizationScope SynchScope,
+  FenceInst(LLVMContext &C, AtomicOrdering Ordering,
+            SynchronizationScope SynchScope,
             BasicBlock *InsertAtEnd);
 
   /// Returns the ordering effect of this fence.
@@ -630,7 +631,7 @@ public:
   }
 
   // Methods for support type inquiry through isa, cast, and dyn_cast:
-  static inline bool classof(const StoreInst *) { return true; }
+  static inline bool classof(const FenceInst *) { return true; }
   static inline bool classof(const Instruction *I) {
     return I->getOpcode() == Instruction::Fence;
   }
