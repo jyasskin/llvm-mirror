@@ -642,7 +642,7 @@ bool DAGTypeLegalizer::PromoteIntegerOperand(SDNode *N, unsigned OpNo) {
                           Res = PromoteIntOp_CONVERT_RNDSAT(N); break;
   case ISD::INSERT_VECTOR_ELT:
                           Res = PromoteIntOp_INSERT_VECTOR_ELT(N, OpNo);break;
-  case ISD::MEMBARRIER:   Res = PromoteIntOp_MEMBARRIER(N); break;
+  case ISD::MEMBARRIER:   Res = PromoteIntOp_MEMBARRIER(N, OpNo); break;
   case ISD::SCALAR_TO_VECTOR:
                           Res = PromoteIntOp_SCALAR_TO_VECTOR(N); break;
   case ISD::SELECT:       Res = PromoteIntOp_SELECT(N, OpNo); break;
@@ -818,14 +818,11 @@ SDValue DAGTypeLegalizer::PromoteIntOp_INSERT_VECTOR_ELT(SDNode *N,
                                 N->getOperand(1), Idx), 0);
 }
 
-SDValue DAGTypeLegalizer::PromoteIntOp_MEMBARRIER(SDNode *N) {
-  SDValue NewOps[6];
-  DebugLoc dl = N->getDebugLoc();
-  NewOps[0] = N->getOperand(0);
-  for (unsigned i = 1; i < array_lengthof(NewOps); ++i) {
-    SDValue Flag = GetPromotedInteger(N->getOperand(i));
-    NewOps[i] = DAG.getZeroExtendInReg(Flag, dl, MVT::i1);
-  }
+SDValue DAGTypeLegalizer::PromoteIntOp_MEMBARRIER(SDNode *N, unsigned OpNo) {
+  SDValue NewOps[3];
+  for (unsigned i = 0; i < array_lengthof(NewOps); ++i)
+    NewOps[i] = N->getOperand(i);
+  NewOps[OpNo] = ZExtPromotedInteger(NewOps[OpNo]);
   return SDValue(DAG.UpdateNodeOperands(N, NewOps, array_lengthof(NewOps)), 0);
 }
 

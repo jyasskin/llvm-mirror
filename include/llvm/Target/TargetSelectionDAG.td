@@ -187,9 +187,8 @@ def STDPrefetch : SDTypeProfile<0, 3, [     // prefetch
   SDTCisPtrTy<0>, SDTCisSameAs<1, 2>, SDTCisInt<1>
 ]>;
 
-def STDMemBarrier : SDTypeProfile<0, 5, [   // memory barier
-  SDTCisSameAs<0,1>,  SDTCisSameAs<0,2>,  SDTCisSameAs<0,3>, SDTCisSameAs<0,4>,
-  SDTCisInt<0>
+def STDMemBarrier : SDTypeProfile<0, 2, [   // memory barier
+  SDTCisInt<0>, SDTCisInt<1>
 ]>;
 def STDAtomic3 : SDTypeProfile<1, 3, [
   SDTCisSameAs<0,2>,  SDTCisSameAs<0,3>, SDTCisInt<0>, SDTCisPtrTy<1>

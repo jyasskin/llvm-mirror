@@ -209,6 +209,28 @@ define void @test_cmpxchg(i32* %a, i64* %b) {
        ret void;
 }
 
+; CHECK: test_fence
+define void @test_fence(i32* %dummy) {
+; CHECK:mov
+        volatile store i32 0, i32* %dummy
+; On x86, only cross-thread seq_cst fences produce an instruction.
+; CHECK-NOT: fence
+        fence acquire
+        fence release
+        fence acq_rel
+; CHECK: mfence
+        fence seq_cst
+; CHECK:mov
+        volatile store i32 0, i32* %dummy
+        fence singlethread acquire
+        fence singlethread release
+        fence singlethread acq_rel
+        fence singlethread seq_cst
+; CHECK-NOT: fence
+; CHECK: ret
+       ret void
+}
+
 declare i32 @llvm.atomic.cmp.swap.i32.p256i32(i32 addrspace(256)* nocapture, i32, i32) nounwind
 
 declare i32 @llvm.atomic.load.add.i32.p0i32(i32*, i32) nounwind 

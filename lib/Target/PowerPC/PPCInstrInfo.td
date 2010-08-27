@@ -1479,12 +1479,8 @@ def : Pat<(f64 (fextend F4RC:$src)),
           (COPY_TO_REGCLASS F4RC:$src, F8RC)>;
 
 // Memory barriers
-def : Pat<(membarrier (i32 imm /*ll*/),
-                      (i32 imm /*ls*/),
-                      (i32 imm /*sl*/),
-                      (i32 imm /*ss*/),
-                      (i32 imm /*device*/)),
-           (SYNC)>;
+def : Pat<(membarrier (i32 imm /*ordering*/), (i32 imm /*synchscope*/)),
+          (SYNC)>;
 
 include "PPCInstrAltivec.td"
 include "PPCInstr64Bit.td"

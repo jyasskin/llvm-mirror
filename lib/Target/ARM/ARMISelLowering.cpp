@@ -2013,13 +2013,11 @@ ARMTargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG,
 static SDValue LowerMEMBARRIER(SDValue Op, SelectionDAG &DAG,
                                const ARMSubtarget *Subtarget) {
   DebugLoc dl = Op.getDebugLoc();
-  SDValue Op5 = Op.getOperand(5);
-  unsigned isDeviceBarrier = cast<ConstantSDNode>(Op5)->getZExtValue();
   // Some subtargets which have dmb and dsb instructions can handle barriers
   // directly. Some ARMv6 cpus can support them with the help of mcr
   // instruction. Thumb1 and pre-v6 ARM mode use a libcall instead and should
   // never get here.
-  unsigned Opc = isDeviceBarrier ? ARMISD::SYNCBARRIER : ARMISD::MEMBARRIER;
+  unsigned Opc = ARMISD::MEMBARRIER;
   if (Subtarget->hasDataBarrier())
     return DAG.getNode(Opc, dl, MVT::Other, Op.getOperand(0));
   else {

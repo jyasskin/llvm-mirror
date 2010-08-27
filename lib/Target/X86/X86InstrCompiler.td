@@ -495,15 +495,7 @@ def OR32mrLocked  : I<0x09, MRMDestMem, (outs), (ins i32mem:$dst, GR32:$zero),
 let hasSideEffects = 1 in
 def Int_MemBarrier : I<0, Pseudo, (outs), (ins),
                      "#MEMBARRIER",
-                     [(X86MemBarrier)]>, Requires<[HasSSE2]>;
-
-// TODO: Get this to fold the constant into the instruction.           
-let hasSideEffects = 1, Defs = [ESP] in
-def Int_MemBarrierNoSSE64  : RI<0x09, MRM1r, (outs), (ins GR64:$zero),
-                           "lock\n\t"
-                           "or{q}\t{$zero, (%rsp)|(%rsp), $zero}",
-                           [(X86MemBarrierNoSSE GR64:$zero)]>,
-                           Requires<[In64BitMode]>, LOCK;
+                     [(X86MemBarrier)]>;
 
 
 // Optimized codegen when the non-memory output is not used.

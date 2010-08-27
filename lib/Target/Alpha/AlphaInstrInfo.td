@@ -602,9 +602,10 @@ def RPCC : MfcForm<0x18, 0xC000, "rpcc $RA", s_rpcc>; //Read process cycle count
 def MB  : MfcPForm<0x18, 0x4000, "mb",  s_imisc>; //memory barrier
 def WMB : MfcPForm<0x18, 0x4400, "wmb", s_imisc>; //write memory barrier
 
-def : Pat<(membarrier (i64 imm), (i64 imm), (i64 imm), (i64 1), (i64 imm)),
-          (WMB)>;
-def : Pat<(membarrier (i64 imm), (i64 imm), (i64 imm), (i64 imm), (i64 imm)),
+// WMB is faster, but only correct in certain special cases (it
+// doesn't work in a critical section that only reads), so we don't
+// provide direct access to it.
+def : Pat<(membarrier (i64 imm), (i64 imm)),
           (MB)>;
 
 //Basic Floating point ops

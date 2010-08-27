@@ -3106,7 +3106,14 @@ void SelectionDAGBuilder::visitAtomicCmpXchg(const AtomicCmpXchgInst &I) {
 }
 
 void SelectionDAGBuilder::visitFence(const FenceInst &I) {
-  llvm_unreachable("Not implemented yet.");
+  LLVMContext &Context = *DAG.getContext();
+
+  const Type *i8 = Type::getInt8Ty(Context);
+  const Type *i1 = Type::getInt1Ty(Context);
+  DAG.setRoot(DAG.getNode(ISD::MEMBARRIER, getCurDebugLoc(), MVT::Other,
+                          getRoot(),
+                          getValue(ConstantInt::get(i8, I.getOrdering())),
+                          getValue(ConstantInt::get(i1, I.getSynchScope()))));
 }
 
 /// visitTargetIntrinsic - Lower a call of a target intrinsic to an INTRINSIC
@@ -4703,12 +4710,27 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
   }
 
   case Intrinsic::memory_barrier: {
-    SDValue Ops[6];
-    Ops[0] = getRoot();
-    for (int x = 1; x < 6; ++x)
-      Ops[x] = getValue(I.getArgOperand(x - 1));
+    unsigned LL = cast<ConstantInt>(I.getArgOperand(0))->getZExtValue();
+    unsigned SL = cast<ConstantInt>(I.getArgOperand(2))->getZExtValue();
+    unsigned SS = cast<ConstantInt>(I.getArgOperand(3))->getZExtValue();
+    AtomicOrdering Ordering;
+    if (SL)
+      Ordering = SequentiallyConsistent;
+    else if (LL && SS)
+      Ordering = AcquireRelease;
+    else if (SS)
+      Ordering = Release;
+    else if (LL)
+      Ordering = Acquire;
+    else
+      Ordering = Acquire;  // Could just as well be Release.
 
-    DAG.setRoot(DAG.getNode(ISD::MEMBARRIER, dl, MVT::Other, &Ops[0], 6));
+    const Type *i8 = Type::getInt8Ty(*DAG.getContext());
+    const Type *i1 = Type::getInt1Ty(*DAG.getContext());
+    DAG.setRoot(DAG.getNode(ISD::MEMBARRIER, dl, MVT::Other,
+                            getRoot(),
+                            getValue(ConstantInt::get(i8, Ordering)),
+                            getValue(ConstantInt::get(i1, CrossThread))));
     return 0;
   }
   case Intrinsic::atomic_cmp_swap: {
