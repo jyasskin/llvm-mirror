@@ -1262,7 +1262,7 @@ public:
 
   void writeOperand(const Value *Op, bool PrintType);
   void writeParamOperand(const Value *Operand, Attributes Attrs);
-  void writeOrdering(AtomicOrdering Ordering);
+  void writeAtomic(AtomicOrdering Ordering, SynchronizationScope SynchScope);
 
   void writeAllMDNodes();
 
@@ -1310,10 +1310,19 @@ void AssemblyWriter::writeParamOperand(const Value *Operand,
   WriteAsOperandInternal(Out, Operand, &TypePrinter, &Machine, TheModule);
 }
 
-void AssemblyWriter::writeOrdering(AtomicOrdering Ordering) {
+void AssemblyWriter::writeAtomic(AtomicOrdering Ordering,
+                                 SynchronizationScope SynchScope) {
+  if (Ordering == NotAtomic)
+    return;
+
+  switch (SynchScope) {
+  default: Out << " <bad scope " << int(SynchScope) << ">"; break;
+  case SingleThread: Out << " singlethread"; break;
+  case CrossThread: break;
+  }
+
   switch (Ordering) {
   default: Out << " <bad ordering " << int(Ordering) << ">"; break;
-  case NotAtomic: break;
   case Unordered: Out << " unordered"; break;
   case Monotonic: Out << " monotonic"; break;
   case Acquire: Out << " acquire"; break;
@@ -1769,7 +1778,8 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
 
   // If this is a volatile load or store, print out the volatile marker.
   if ((isa<LoadInst>(I)  && cast<LoadInst>(I).isVolatile()) ||
-      (isa<StoreInst>(I) && cast<StoreInst>(I).isVolatile())) {
+      (isa<StoreInst>(I) && cast<StoreInst>(I).isVolatile()) ||
+      (isa<AtomicCmpXchgInst>(I) && cast<AtomicCmpXchgInst>(I).isVolatile())) {
       Out << "volatile ";
   } else if (isa<CallInst>(I) && cast<CallInst>(I).isTailCall()) {
     // If this is a call, check if it's a tail call.
@@ -2022,23 +2032,21 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
     }
   }
 
-  // Print post operand atomic info and alignment for load/store.
+  // Print post operand atomic info and alignment for memory operations.
   if (const LoadInst *LI = dyn_cast<LoadInst>(&I)) {
-    if (LI->isAtomic()) {
-      if (LI->getSynchScope() == SingleThread)
-        Out << " singlethread";
-      writeOrdering(LI->getOrdering());
-    }
+    writeAtomic(LI->getOrdering(), LI->getSynchScope());
     if (LI->getAlignment())
       Out << ", align " << LI->getAlignment();
   } else if (const StoreInst *SI = dyn_cast<StoreInst>(&I)) {
-    if (SI->isAtomic()) {
-      if (SI->getSynchScope() == SingleThread)
-        Out << " singlethread";
-      writeOrdering(SI->getOrdering());
-    }
+    writeAtomic(SI->getOrdering(), SI->getSynchScope());
     if (SI->getAlignment())
       Out << ", align " << SI->getAlignment();
+  } else if (const AtomicCmpXchgInst *CXI = dyn_cast<AtomicCmpXchgInst>(&I)) {
+    writeAtomic(CXI->getOrdering(), CXI->getSynchScope());
+    if (CXI->getAlignment())
+      Out << ", align " << CXI->getAlignment();
+  } else if (const FenceInst *FI = dyn_cast<FenceInst>(&I)) {
+    writeAtomic(FI->getOrdering(), FI->getSynchScope());
   }
 
   // Print Metadata info.

@@ -132,5 +132,45 @@ TEST(AsmWriterTest, Store) {
                    ToString(*SI));
 }
 
+TEST(AsmWriterTest, CmpXchg) {
+  LLVMContext C;
+  Value *const null_i32p = Constant::getNullValue(Type::getInt32PtrTy(C));
+  Value *const zero = Constant::getNullValue(Type::getInt32Ty(C));
+  OwningPtr<AtomicCmpXchgInst> CXI(
+    new AtomicCmpXchgInst(null_i32p, zero, zero, Unordered, CrossThread));
+  EXPECT_SUBSTRING("cmpxchg i32* null, i32 0, i32 0 unordered",
+                   ToString(*CXI));
+
+  CXI.reset(new AtomicCmpXchgInst(null_i32p, zero, zero,
+                                  Unordered, CrossThread));
+  CXI->setVolatile(true);
+  EXPECT_SUBSTRING("volatile cmpxchg i32* null, i32 0, i32 0 unordered",
+                   ToString(*CXI));
+
+  CXI.reset(new AtomicCmpXchgInst(null_i32p, zero, zero,
+                                  AcquireRelease, SingleThread));
+  EXPECT_SUBSTRING("cmpxchg i32* null, i32 0, i32 0 singlethread acq_rel",
+                   ToString(*CXI));
+
+  CXI.reset(new AtomicCmpXchgInst(null_i32p, zero, zero,
+                                  SequentiallyConsistent, SingleThread));
+  CXI->setVolatile(true);
+  CXI->setAlignment(64);
+  EXPECT_SUBSTRING("volatile cmpxchg i32* null, i32 0, i32 0 singlethread"
+                   " seq_cst, align 64",
+                   ToString(*CXI));
+}
+
+TEST(AsmWriterTest, Fence) {
+  LLVMContext C;
+  OwningPtr<FenceInst> FI(new FenceInst(C, SequentiallyConsistent, CrossThread));
+  EXPECT_SUBSTRING("fence seq_cst",
+                   ToString(*FI));
+
+  FI.reset(new FenceInst(C, AcquireRelease, SingleThread));
+  EXPECT_SUBSTRING("fence singlethread acq_rel",
+                   ToString(*FI));
+}
+
 }
 }

@@ -127,6 +127,8 @@ const char *Instruction::getOpcodeName(unsigned OpCode) {
   case Alloca:        return "alloca";
   case Load:          return "load";
   case Store:         return "store";
+  case AtomicCmpXchg: return "cmpxchg";
+  case Fence:         return "fence";
   case GetElementPtr: return "getelementptr";
 
   // Convert instructions...
