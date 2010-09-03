@@ -3106,7 +3106,31 @@ void SelectionDAGBuilder::visitAtomicCmpXchg(const AtomicCmpXchgInst &I) {
 }
 
 void SelectionDAGBuilder::visitAtomicRMW(const AtomicRMWInst &I) {
-  llvm_unreachable("Unimplemented");
+  ISD::NodeType NT;
+  switch (I.getOperation()) {
+  default: llvm_unreachable("Unknown atomicrmw operation"); return;
+  case AtomicRMWInst::Xchg: NT = ISD::ATOMIC_SWAP; break;
+  case AtomicRMWInst::Add:  NT = ISD::ATOMIC_LOAD_ADD; break;
+  case AtomicRMWInst::Sub:  NT = ISD::ATOMIC_LOAD_SUB; break;
+  case AtomicRMWInst::And:  NT = ISD::ATOMIC_LOAD_AND; break;
+  case AtomicRMWInst::Nand: NT = ISD::ATOMIC_LOAD_NAND; break;
+  case AtomicRMWInst::Or:   NT = ISD::ATOMIC_LOAD_OR; break;
+  case AtomicRMWInst::Xor:  NT = ISD::ATOMIC_LOAD_XOR; break;
+  case AtomicRMWInst::Max:  NT = ISD::ATOMIC_LOAD_MAX; break;
+  case AtomicRMWInst::Min:  NT = ISD::ATOMIC_LOAD_MIN; break;
+  case AtomicRMWInst::UMax: NT = ISD::ATOMIC_LOAD_UMAX; break;
+  case AtomicRMWInst::UMin: NT = ISD::ATOMIC_LOAD_UMIN; break;
+  }
+  SDValue L =
+    DAG.getAtomic(NT, getCurDebugLoc(),
+                  getValue(I.getValOperand()).getValueType().getSimpleVT(),
+                  getRoot(),
+                  getValue(I.getPointerOperand()),
+                  getValue(I.getValOperand()),
+                  I.getPointerOperand(), I.getAlignment(),
+                  I.getOrdering(), I.getSynchScope());
+  setValue(&I, L);
+  DAG.setRoot(L.getValue(1));
 }
 
 void SelectionDAGBuilder::visitFence(const FenceInst &I) {
