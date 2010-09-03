@@ -161,6 +161,36 @@ TEST(AsmWriterTest, CmpXchg) {
                    ToString(*CXI));
 }
 
+TEST(AsmWriterTest, AtomicRMW) {
+  LLVMContext C;
+  Value *const null_i32p = Constant::getNullValue(Type::getInt32PtrTy(C));
+  Value *const zero = Constant::getNullValue(Type::getInt32Ty(C));
+  OwningPtr<AtomicRMWInst> RMWI(
+    new AtomicRMWInst(AtomicRMWInst::Add, null_i32p, zero,
+                      Unordered, CrossThread));
+  EXPECT_SUBSTRING("atomicrmw add i32* null, i32 0 unordered",
+                   ToString(*RMWI));
+
+  RMWI.reset(new AtomicRMWInst(AtomicRMWInst::Xchg, null_i32p, zero,
+                               Unordered, CrossThread));
+  RMWI->setVolatile(true);
+  EXPECT_SUBSTRING("volatile atomicrmw xchg i32* null, i32 0 unordered",
+                   ToString(*RMWI));
+
+  RMWI.reset(new AtomicRMWInst(AtomicRMWInst::And, null_i32p, zero,
+                               AcquireRelease, SingleThread));
+  EXPECT_SUBSTRING("atomicrmw and i32* null, i32 0 singlethread acq_rel",
+                   ToString(*RMWI));
+
+  RMWI.reset(new AtomicRMWInst(AtomicRMWInst::Max, null_i32p, zero,
+                                  SequentiallyConsistent, SingleThread));
+  RMWI->setVolatile(true);
+  RMWI->setAlignment(64);
+  EXPECT_SUBSTRING("volatile atomicrmw max i32* null, i32 0 singlethread"
+                   " seq_cst, align 64",
+                   ToString(*RMWI));
+}
+
 TEST(AsmWriterTest, Fence) {
   LLVMContext C;
   OwningPtr<FenceInst> FI(new FenceInst(C, SequentiallyConsistent, CrossThread));

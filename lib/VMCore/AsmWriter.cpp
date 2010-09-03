@@ -823,6 +823,23 @@ static const char *getPredicateText(unsigned predicate) {
   return pred;
 }
 
+static void writeAtomicRMWOperation(raw_ostream &Out,
+                                    AtomicRMWInst::BinOp Op) {
+  switch (Op) {
+  default: Out << " <unknown operation " << Op << ">"; break;
+  case AtomicRMWInst::Xchg: Out << " xchg"; break;
+  case AtomicRMWInst::Add:  Out << " add"; break;
+  case AtomicRMWInst::Sub:  Out << " sub"; break;
+  case AtomicRMWInst::And:  Out << " and"; break;
+  case AtomicRMWInst::Nand: Out << " nand"; break;
+  case AtomicRMWInst::Or:   Out << " or"; break;
+  case AtomicRMWInst::Xor:  Out << " xor"; break;
+  case AtomicRMWInst::Max:  Out << " max"; break;
+  case AtomicRMWInst::Min:  Out << " min"; break;
+  case AtomicRMWInst::UMax: Out << " umax"; break;
+  case AtomicRMWInst::UMin: Out << " umin"; break;
+  }
+}
 
 static void WriteOptimizationInfo(raw_ostream &Out, const User *U) {
   if (const OverflowingBinaryOperator *OBO =
@@ -1779,7 +1796,8 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
   // If this is a volatile load or store, print out the volatile marker.
   if ((isa<LoadInst>(I)  && cast<LoadInst>(I).isVolatile()) ||
       (isa<StoreInst>(I) && cast<StoreInst>(I).isVolatile()) ||
-      (isa<AtomicCmpXchgInst>(I) && cast<AtomicCmpXchgInst>(I).isVolatile())) {
+      (isa<AtomicCmpXchgInst>(I) && cast<AtomicCmpXchgInst>(I).isVolatile()) ||
+      (isa<AtomicRMWInst>(I) && cast<AtomicRMWInst>(I).isVolatile())) {
       Out << "volatile ";
   } else if (isa<CallInst>(I) && cast<CallInst>(I).isTailCall()) {
     // If this is a call, check if it's a tail call.
@@ -1800,6 +1818,10 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
   // Print out the compare instruction predicates
   if (const CmpInst *CI = dyn_cast<CmpInst>(&I))
     Out << ' ' << getPredicateText(CI->getPredicate());
+
+  // Print out the atomicrmw operation
+  if (const AtomicRMWInst *RMWI = dyn_cast<AtomicRMWInst>(&I))
+    writeAtomicRMWOperation(Out, RMWI->getOperation());
 
   // Print out the type of the operands...
   const Value *Operand = I.getNumOperands() ? I.getOperand(0) : 0;
@@ -2045,6 +2067,10 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
     writeAtomic(CXI->getOrdering(), CXI->getSynchScope());
     if (CXI->getAlignment())
       Out << ", align " << CXI->getAlignment();
+  } else if (const AtomicRMWInst *RMWI = dyn_cast<AtomicRMWInst>(&I)) {
+    writeAtomic(RMWI->getOrdering(), RMWI->getSynchScope());
+    if (RMWI->getAlignment())
+      Out << ", align " << RMWI->getAlignment();
   } else if (const FenceInst *FI = dyn_cast<FenceInst>(&I)) {
     writeAtomic(FI->getOrdering(), FI->getSynchScope());
   }
