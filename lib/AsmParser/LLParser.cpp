@@ -3101,6 +3101,7 @@ int LLParser::ParseInstruction(Instruction *&Inst, BasicBlock *BB,
   case lltok::kw_load:           return ParseLoad(Inst, PFS, false, false);
   case lltok::kw_store:          return ParseStore(Inst, PFS, false, false);
   case lltok::kw_cmpxchg:        return ParseCmpXchg(Inst, PFS, false);
+  case lltok::kw_atomicrmw:      return ParseAtomicRMW(Inst, PFS, false);
   case lltok::kw_fence:          return ParseFence(Inst, PFS);
   case lltok::kw_volatile: {
     bool atomic = false;
@@ -3110,10 +3111,12 @@ int LLParser::ParseInstruction(Instruction *&Inst, BasicBlock *BB,
       return ParseLoad(Inst, PFS, true, atomic);
     else if (EatIfPresent(lltok::kw_store))
       return ParseStore(Inst, PFS, true, atomic);
-    else if (EatIfPresent(lltok::kw_cmpxchg))
+    else if (!atomic && EatIfPresent(lltok::kw_cmpxchg))
       return ParseCmpXchg(Inst, PFS, true);
+    else if (!atomic && EatIfPresent(lltok::kw_atomicrmw))
+      return ParseAtomicRMW(Inst, PFS, true);
     else
-      return TokError("expected 'load' or 'store'");
+      return TokError("expected 'load', 'store', 'cmpxchg', or 'atomicrmw'");
   }
   case lltok::kw_atomic:
     if (EatIfPresent(lltok::kw_load))
@@ -3952,6 +3955,59 @@ int LLParser::ParseCmpXchg(Instruction *&Inst, PerFunctionState &PFS,
   if (Alignment != 0)
     CXI->setAlignment(Alignment);
   Inst = CXI;
+  return AteExtraComma ? InstExtraComma : InstNormal;
+}
+
+/// ParseAtomicRMW
+///   ::= 'volatile'? 'atomicrmw' BinOp TypeAndValue ',' TypeAndValue
+///        'singlethread'? AtomicOrdering (',' 'align' i32)?
+int LLParser::ParseAtomicRMW(Instruction *&Inst, PerFunctionState &PFS,
+                             bool isVolatile) {
+  Value *Ptr, *Val; LocTy PtrLoc, ValLoc;
+  unsigned Alignment = 0;
+  bool AteExtraComma = false;
+  AtomicOrdering Ordering = NotAtomic;
+  SynchronizationScope Scope = CrossThread;
+  AtomicRMWInst::BinOp Operation;
+  switch (Lex.getKind()) {
+  default: return TokError("expected binary operation in atomicrmw");
+  case lltok::kw_xchg: Operation = AtomicRMWInst::Xchg; break;
+  case lltok::kw_add: Operation = AtomicRMWInst::Add; break;
+  case lltok::kw_sub: Operation = AtomicRMWInst::Sub; break;
+  case lltok::kw_and: Operation = AtomicRMWInst::And; break;
+  case lltok::kw_nand: Operation = AtomicRMWInst::Nand; break;
+  case lltok::kw_or: Operation = AtomicRMWInst::Or; break;
+  case lltok::kw_xor: Operation = AtomicRMWInst::Xor; break;
+  case lltok::kw_max: Operation = AtomicRMWInst::Max; break;
+  case lltok::kw_min: Operation = AtomicRMWInst::Min; break;
+  case lltok::kw_umax: Operation = AtomicRMWInst::UMax; break;
+  case lltok::kw_umin: Operation = AtomicRMWInst::UMin; break;
+  }
+  Lex.Lex();  // Eat the operation.
+
+  if (ParseTypeAndValue(Ptr, PtrLoc, PFS) ||
+      ParseToken(lltok::comma, "expected ',' after atomicrmw address") ||
+      ParseTypeAndValue(Val, ValLoc, PFS) ||
+      ParseScopeAndOrdering(true /*Always atomic*/, Scope, Ordering) ||
+      ParseOptionalCommaAlign(Alignment, AteExtraComma))
+    return true;
+
+  if (!Ptr->getType()->isPointerTy())
+    return Error(PtrLoc, "atomicrmw operand must be a pointer");
+  if (cast<PointerType>(Ptr->getType())->getElementType() != Val->getType())
+    return Error(ValLoc, "atomicrmw value and pointer type do not match");
+  if (!Val->getType()->isFirstClassType())
+    return Error(ValLoc, "atomicrmw operand must be a first class value");
+  if (Ordering == NotAtomic)
+    return Error(ValLoc, "cmpxchg must be atomic");
+
+  AtomicRMWInst *RMWI =
+    new AtomicRMWInst(Operation, Ptr, Val, Ordering, Scope);
+  if (isVolatile)
+    RMWI->setVolatile(true);
+  if (Alignment != 0)
+    RMWI->setAlignment(Alignment);
+  Inst = RMWI;
   return AteExtraComma ? InstExtraComma : InstNormal;
 }
 

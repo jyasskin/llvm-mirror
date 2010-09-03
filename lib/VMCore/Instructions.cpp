@@ -1189,6 +1189,52 @@ AtomicCmpXchgInst::AtomicCmpXchgInst(Value *Ptr, Value *Cmp, Value *NewVal,
 }
 
 //===----------------------------------------------------------------------===//
+//                       AtomicRMWInst Implementation
+//===----------------------------------------------------------------------===//
+
+void AtomicRMWInst::Init(BinOp Operation, Value *Ptr, Value *Val,
+                         AtomicOrdering Ordering,
+                         SynchronizationScope SynchScope) {
+  Op<0>() = Ptr;
+  Op<1>() = Val;
+  setOperation(Operation);
+  setOrdering(Ordering);
+  setSynchScope(SynchScope);
+
+  assert(getOperand(0) && getOperand(1) &&
+         "All operands must be non-null!");
+  assert(getOperand(0)->getType()->isPointerTy() &&
+         "Ptr must have pointer type!");
+  assert(getOperand(1)->getType() ==
+         cast<PointerType>(getOperand(0)->getType())->getElementType()
+         && "Ptr must be a pointer to Val type!");
+  assert(Ordering != NotAtomic &&
+         "AtomicRMW instructions must be atomic!");
+}
+
+AtomicRMWInst::AtomicRMWInst(BinOp Operation, Value *Ptr, Value *Val,
+                             AtomicOrdering Ordering,
+                             SynchronizationScope SynchScope,
+                             Instruction *InsertBefore)
+  : Instruction(Val->getType(), AtomicRMW,
+                OperandTraits<AtomicRMWInst>::op_begin(this),
+                OperandTraits<AtomicRMWInst>::operands(this),
+                InsertBefore) {
+  Init(Operation, Ptr, Val, Ordering, SynchScope);
+}
+
+AtomicRMWInst::AtomicRMWInst(BinOp Operation, Value *Ptr, Value *Val,
+                             AtomicOrdering Ordering,
+                             SynchronizationScope SynchScope,
+                             BasicBlock *InsertAtEnd)
+  : Instruction(Val->getType(), AtomicRMW,
+                OperandTraits<AtomicRMWInst>::op_begin(this),
+                OperandTraits<AtomicRMWInst>::operands(this),
+                InsertAtEnd) {
+  Init(Operation, Ptr, Val, Ordering, SynchScope);
+}
+
+//===----------------------------------------------------------------------===//
 //                       FenceInst Implementation
 //===----------------------------------------------------------------------===//
 
@@ -3361,6 +3407,15 @@ AtomicCmpXchgInst *AtomicCmpXchgInst::clone_impl() const {
   AtomicCmpXchgInst *Result =
     new AtomicCmpXchgInst(getOperand(0), getOperand(1), getOperand(2),
                           getOrdering(), getSynchScope());
+  Result->setVolatile(isVolatile());
+  Result->setAlignment(getAlignment());
+  return Result;
+}
+
+AtomicRMWInst *AtomicRMWInst::clone_impl() const {
+  AtomicRMWInst *Result =
+    new AtomicRMWInst(getOperation(),getOperand(0), getOperand(1),
+                      getOrdering(), getSynchScope());
   Result->setVolatile(isVolatile());
   Result->setAlignment(getAlignment());
   return Result;

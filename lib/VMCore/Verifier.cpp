@@ -317,6 +317,7 @@ namespace {
     void visitLoadInst(LoadInst &LI);
     void visitStoreInst(StoreInst &SI);
     void visitAtomicCmpXchgInst(AtomicCmpXchgInst &CXI);
+    void visitAtomicRMWInst(AtomicRMWInst &RMWI);
     void visitFenceInst(FenceInst &FI);
     void visitInstruction(Instruction &I);
     void visitTerminatorInst(TerminatorInst &I);
@@ -1391,6 +1392,21 @@ void Verifier::visitAtomicCmpXchgInst(AtomicCmpXchgInst &CXI) {
           "Stored value type does not match pointer operand type!",
           &CXI, ElTy);
   visitInstruction(CXI);
+}
+
+void Verifier::visitAtomicRMWInst(AtomicRMWInst &RMWI) {
+  Assert1(RMWI.getOrdering() != NotAtomic,
+          "atomicrmw instructions must be atomic.", &RMWI);
+  const PointerType *PTy = dyn_cast<PointerType>(RMWI.getOperand(0)->getType());
+  Assert1(PTy, "First atomicrmw operand must be a pointer.", &RMWI);
+  const Type *ElTy = PTy->getElementType();
+  Assert2(ElTy == RMWI.getOperand(1)->getType(),
+          "Argument value type does not match pointer operand type!",
+          &RMWI, ElTy);
+  Assert1(AtomicRMWInst::FIRST_BINOP <= RMWI.getOperation() &&
+          RMWI.getOperation() <= AtomicRMWInst::LAST_BINOP,
+          "Invalid binary operation!", &RMWI);
+  visitInstruction(RMWI);
 }
 
 void Verifier::visitFenceInst(FenceInst &FI) {

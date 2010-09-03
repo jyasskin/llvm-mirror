@@ -96,7 +96,7 @@ public:
     return static_cast<SynchronizationScope>((SubclassData >> 10) & 1);
   }
   unsigned short setSynchScope(SynchronizationScope xthread) {
-    SubclassData = (SubclassData &~ (15<<10)) | (xthread << 10);
+    SubclassData = (SubclassData &~ (1<<10)) | (xthread << 10);
     return SubclassData;
   }
 };
@@ -565,6 +565,168 @@ struct OperandTraits<AtomicCmpXchgInst> : public FixedNumOperandTraits<3> {
 };
 
 DEFINE_TRANSPARENT_OPERAND_ACCESSORS(AtomicCmpXchgInst, Value)
+
+//===----------------------------------------------------------------------===//
+//                                AtomicRMWInst Class
+//===----------------------------------------------------------------------===//
+
+/// AtomicRMWInst - an instruction that atomically reads a memory location,
+/// combines it with another value, and then stores the result back.  Returns
+/// the old value.
+///
+class AtomicRMWInst : public Instruction {
+  void *operator new(size_t, unsigned);  // DO NOT IMPLEMENT
+protected:
+  virtual AtomicRMWInst *clone_impl() const;
+public:
+  /// This enumeration lists the possible modifications atomicrmw can make.  In
+  /// the descriptions, 'p' is the pointer to the instruction's memory location,
+  /// 'old' is the initial value of *p, and 'v' is the other value passed to the
+  /// instruction.  These instructions always return 'old'.
+  enum BinOp {
+    /// *p = v
+    Xchg,
+    /// *p = old + v
+    Add,
+    /// *p = old - v
+    Sub,
+    /// *p = old & v
+    And,
+    /// *p = ~old & v
+    Nand,
+    /// *p = old | v
+    Or,
+    /// *p = old ^ v
+    Xor,
+    /// *p = old >signed v ? old : v
+    Max,
+    /// *p = old <signed v ? old : v
+    Min,
+    /// *p = old >unsigned v ? old : v
+    UMax,
+    /// *p = old <unsigned v ? old : v
+    UMin,
+
+    FIRST_BINOP = Xchg,
+    LAST_BINOP = UMin
+  };
+
+  // allocate space for exactly two operands
+  void *operator new(size_t s) {
+    return User::operator new(s, 2);
+  }
+  AtomicRMWInst(BinOp Operation, Value *Ptr, Value *Val,
+                AtomicOrdering Ordering, SynchronizationScope SynchScope,
+                Instruction *InsertBefore = 0);
+  AtomicRMWInst(BinOp Operation, Value *Ptr, Value *Val,
+                AtomicOrdering Ordering, SynchronizationScope SynchScope,
+                BasicBlock *InsertAtEnd);
+
+  BinOp getOperation() const {
+    return static_cast<BinOp>((getSubclassDataFromInstruction() >> 11) & 15);
+  }
+
+  void setOperation(BinOp Operation) {
+    unsigned short SubclassData = getSubclassDataFromInstruction();
+    setInstructionSubclassData((SubclassData &~ (15 << 11)) |
+                               (Operation << 11));
+  }
+
+  /// isVolatile - Return true if this is a RMW on a volatile memory location.
+  ///
+  bool isVolatile() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .isVolatile();
+  }
+
+  /// setVolatile - Specify whether this is a volatile RMW or not.
+  ///
+  void setVolatile(bool V) {
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction()).setVolatile(V));
+  }
+
+  /// Transparently provide more efficient getOperand methods.
+  DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
+
+  /// getAlignment - Return the alignment of the access that is being performed
+  ///
+  unsigned getAlignment() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .getAlignment();
+  }
+
+  void setAlignment(unsigned Align) {
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .setAlignment(Align));
+  }
+
+  /// Set the ordering constraint on this RMW.
+  void setOrdering(AtomicOrdering Ordering) {
+    assert(Ordering != NotAtomic &&
+           "RMW instructions can only be atomic.");
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .setOrdering(Ordering));
+  }
+
+  /// Specify whether this RMW orders other operations with respect to all
+  /// concurrently executing threads, or only with respect to signal handlers
+  /// executing in the same thread.
+  void setSynchScope(SynchronizationScope SynchScope) {
+    setInstructionSubclassData(
+      MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .setSynchScope(SynchScope));
+  }
+
+  /// Returns the ordering constraint on this RMW.
+  AtomicOrdering getOrdering() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .getOrdering();
+  }
+
+  /// Returns whether this RMW is atomic between threads or only within a
+  /// single thread.
+  SynchronizationScope getSynchScope() const {
+    return MemoryInstSubclassData(getSubclassDataFromInstruction())
+      .getSynchScope();
+  }
+
+  Value *getPointerOperand() { return getOperand(0); }
+  const Value *getPointerOperand() const { return getOperand(0); }
+  static unsigned getPointerOperandIndex() { return 0U; }
+
+  Value *getValOperand() { return getOperand(1); }
+  const Value *getValOperand() const { return getOperand(1); }
+
+  unsigned getPointerAddressSpace() const {
+    return cast<PointerType>(getPointerOperand()->getType())->getAddressSpace();
+  }
+
+  // Methods for support type inquiry through isa, cast, and dyn_cast:
+  static inline bool classof(const AtomicRMWInst *) { return true; }
+  static inline bool classof(const Instruction *I) {
+    return I->getOpcode() == Instruction::AtomicRMW;
+  }
+  static inline bool classof(const Value *V) {
+    return isa<Instruction>(V) && classof(cast<Instruction>(V));
+  }
+private:
+  void Init(BinOp Operation, Value *Ptr, Value *Val,
+            AtomicOrdering Ordering, SynchronizationScope SynchScope);
+  // Shadow Instruction::setInstructionSubclassData with a private forwarding
+  // method so that subclasses cannot accidentally use it.
+  void setInstructionSubclassData(unsigned short D) {
+    Instruction::setInstructionSubclassData(D);
+  }
+};
+
+template <>
+struct OperandTraits<AtomicRMWInst> : public FixedNumOperandTraits<2> {
+};
+
+DEFINE_TRANSPARENT_OPERAND_ACCESSORS(AtomicRMWInst, Value)
 
 //===----------------------------------------------------------------------===//
 //                                FenceInst Class

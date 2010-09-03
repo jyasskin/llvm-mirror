@@ -3105,6 +3105,10 @@ void SelectionDAGBuilder::visitAtomicCmpXchg(const AtomicCmpXchgInst &I) {
   DAG.setRoot(L.getValue(1));
 }
 
+void SelectionDAGBuilder::visitAtomicRMW(const AtomicRMWInst &I) {
+  llvm_unreachable("Unimplemented");
+}
+
 void SelectionDAGBuilder::visitFence(const FenceInst &I) {
   LLVMContext &Context = *DAG.getContext();
 

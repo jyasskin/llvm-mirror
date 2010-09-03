@@ -500,6 +500,7 @@ private:
   void visitStore(const StoreInst &I);
   void visitAtomicStore(const StoreInst &I);
   void visitAtomicCmpXchg(const AtomicCmpXchgInst &I);
+  void visitAtomicRMW(const AtomicRMWInst &I);
   void visitFence(const FenceInst &I);
   void visitPHI(const PHINode &I);
   void visitCall(const CallInst &I);

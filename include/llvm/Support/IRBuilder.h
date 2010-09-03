@@ -709,6 +709,14 @@ public:
     return Insert(new AtomicCmpXchgInst(Ptr, Cmp, NewVal, Ordering, SynchScope),
                   Name);
   }
+  AtomicRMWInst *CreateAtomicRMW(
+      AtomicRMWInst::BinOp Op, Value *Ptr, Value *Val,
+      AtomicOrdering Ordering,
+      SynchronizationScope SynchScope = CrossThread,
+      const Twine &Name = "") {
+    return Insert(new AtomicRMWInst(Op, Ptr, Val, Ordering, SynchScope),
+                  Name);
+  }
   FenceInst *CreateFence(AtomicOrdering Ordering,
                          SynchronizationScope SynchScope = CrossThread) {
     return Insert(new FenceInst(Ordering, SynchScope));
