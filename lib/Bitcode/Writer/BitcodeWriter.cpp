@@ -99,6 +99,43 @@ static unsigned GetEncodedBinaryOpcode(unsigned Opcode) {
   }
 }
 
+static unsigned GetEncodedRMWOperation(AtomicRMWInst::BinOp Op) {
+  switch (Op) {
+  default: llvm_unreachable("Unknown RMW operation!");
+  case AtomicRMWInst::Xchg: return bitc::RMW_XCHG;
+  case AtomicRMWInst::Add: return bitc::RMW_ADD;
+  case AtomicRMWInst::Sub: return bitc::RMW_SUB;
+  case AtomicRMWInst::And: return bitc::RMW_AND;
+  case AtomicRMWInst::Nand: return bitc::RMW_NAND;
+  case AtomicRMWInst::Or: return bitc::RMW_OR;
+  case AtomicRMWInst::Xor: return bitc::RMW_XOR;
+  case AtomicRMWInst::Max: return bitc::RMW_MAX;
+  case AtomicRMWInst::Min: return bitc::RMW_MIN;
+  case AtomicRMWInst::UMax: return bitc::RMW_UMAX;
+  case AtomicRMWInst::UMin: return bitc::RMW_UMIN;
+  }
+}
+
+static unsigned GetEncodedOrdering(AtomicOrdering Ordering) {
+  switch (Ordering) {
+  default: llvm_unreachable("Unknown atomic ordering");
+  case NotAtomic: return bitc::ORDERING_NOTATOMIC;
+  case Unordered: return bitc::ORDERING_UNORDERED;
+  case Monotonic: return bitc::ORDERING_MONOTONIC;
+  case Acquire: return bitc::ORDERING_ACQUIRE;
+  case Release: return bitc::ORDERING_RELEASE;
+  case AcquireRelease: return bitc::ORDERING_ACQREL;
+  case SequentiallyConsistent: return bitc::ORDERING_SEQCST;
+  }
+}
+
+static unsigned GetEncodedSynchScope(SynchronizationScope SynchScope) {
+  switch (SynchScope) {
+  default: llvm_unreachable("Unknown synchronization scope");
+  case SingleThread: return bitc::SYNCHSCOPE_SINGLETHREAD;
+  case CrossThread: return bitc::SYNCHSCOPE_CROSSTHREAD;
+  }
+}
 
 
 static void WriteStringRecord(unsigned Code, const std::string &Str,
@@ -1093,19 +1130,52 @@ static void WriteInstruction(const Instruction &I, unsigned InstID,
     break;
 
   case Instruction::Load:
-    Code = bitc::FUNC_CODE_INST_LOAD;
+    Code = bitc::FUNC_CODE_INST_LOAD2;
     if (!PushValueAndType(I.getOperand(0), InstID, Vals, VE))  // ptr
       AbbrevToUse = FUNCTION_INST_LOAD_ABBREV;
 
     Vals.push_back(Log2_32(cast<LoadInst>(I).getAlignment())+1);
     Vals.push_back(cast<LoadInst>(I).isVolatile());
+    Vals.push_back(GetEncodedOrdering(cast<LoadInst>(I).getOrdering()));
+    Vals.push_back(GetEncodedSynchScope(cast<LoadInst>(I).getSynchScope()));
     break;
   case Instruction::Store:
-    Code = bitc::FUNC_CODE_INST_STORE2;
+    Code = bitc::FUNC_CODE_INST_STORE3;
     PushValueAndType(I.getOperand(1), InstID, Vals, VE);  // ptrty + ptr
     Vals.push_back(VE.getValueID(I.getOperand(0)));       // val.
     Vals.push_back(Log2_32(cast<StoreInst>(I).getAlignment())+1);
     Vals.push_back(cast<StoreInst>(I).isVolatile());
+    Vals.push_back(GetEncodedOrdering(cast<StoreInst>(I).getOrdering()));
+    Vals.push_back(GetEncodedSynchScope(cast<StoreInst>(I).getSynchScope()));
+    break;
+  case Instruction::AtomicCmpXchg:
+    Code = bitc::FUNC_CODE_INST_CMPXCHG;
+    PushValueAndType(I.getOperand(0), InstID, Vals, VE);  // ptrty + ptr
+    Vals.push_back(VE.getValueID(I.getOperand(1)));       // cmp.
+    Vals.push_back(VE.getValueID(I.getOperand(2)));       // newval.
+    Vals.push_back(Log2_32(cast<AtomicCmpXchgInst>(I).getAlignment())+1);
+    Vals.push_back(cast<AtomicCmpXchgInst>(I).isVolatile());
+    Vals.push_back(GetEncodedOrdering(
+                     cast<AtomicCmpXchgInst>(I).getOrdering()));
+    Vals.push_back(GetEncodedSynchScope(
+                     cast<AtomicCmpXchgInst>(I).getSynchScope()));
+    break;
+  case Instruction::AtomicRMW:
+    Code = bitc::FUNC_CODE_INST_ATOMICRMW;
+    PushValueAndType(I.getOperand(0), InstID, Vals, VE);  // ptrty + ptr
+    Vals.push_back(VE.getValueID(I.getOperand(1)));       // val.
+    Vals.push_back(GetEncodedRMWOperation(
+                     cast<AtomicRMWInst>(I).getOperation()));
+    Vals.push_back(Log2_32(cast<AtomicRMWInst>(I).getAlignment())+1);
+    Vals.push_back(cast<AtomicRMWInst>(I).isVolatile());
+    Vals.push_back(GetEncodedOrdering(cast<AtomicRMWInst>(I).getOrdering()));
+    Vals.push_back(GetEncodedSynchScope(
+                     cast<AtomicRMWInst>(I).getSynchScope()));
+    break;
+  case Instruction::Fence:
+    Code = bitc::FUNC_CODE_INST_FENCE;
+    Vals.push_back(GetEncodedOrdering(cast<FenceInst>(I).getOrdering()));
+    Vals.push_back(GetEncodedSynchScope(cast<FenceInst>(I).getSynchScope()));
     break;
   case Instruction::Call: {
     const CallInst &CI = cast<CallInst>(I);
@@ -1406,10 +1476,12 @@ static void WriteBlockInfo(const ValueEnumerator &VE, BitstreamWriter &Stream) {
 
   { // INST_LOAD abbrev for FUNCTION_BLOCK.
     BitCodeAbbrev *Abbv = new BitCodeAbbrev();
-    Abbv->Add(BitCodeAbbrevOp(bitc::FUNC_CODE_INST_LOAD));
+    Abbv->Add(BitCodeAbbrevOp(bitc::FUNC_CODE_INST_LOAD2));
     Abbv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // Ptr
     Abbv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 4)); // Align
     Abbv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); // volatile
+    Abbv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 3)); // Ordering
+    Abbv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); // SynchScope
     if (Stream.EmitBlockInfoAbbrev(bitc::FUNCTION_BLOCK_ID,
                                    Abbv) != FUNCTION_INST_LOAD_ABBREV)
       llvm_unreachable("Unexpected abbrev ordering!");

@@ -608,7 +608,8 @@ public:
     UMin,
 
     FIRST_BINOP = Xchg,
-    LAST_BINOP = UMin
+    LAST_BINOP = UMin,
+    BAD_BINOP
   };
 
   // allocate space for exactly two operands

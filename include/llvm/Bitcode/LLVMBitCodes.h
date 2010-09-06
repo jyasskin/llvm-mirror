@@ -192,6 +192,23 @@ namespace bitc {
     BINOP_XOR  = 12
   };
 
+  /// These are values used in the bitcode files to encode AtomicRMW operations.
+  /// The values of these enums have no fixed relation to the LLVM IR enum
+  /// values.  Changing these will break compatibility with old files.
+  enum RMWOperations {
+    RMW_XCHG = 0,
+    RMW_ADD = 1,
+    RMW_SUB = 2,
+    RMW_AND = 3,
+    RMW_NAND = 4,
+    RMW_OR = 5,
+    RMW_XOR = 6,
+    RMW_MAX = 7,
+    RMW_MIN = 8,
+    RMW_UMAX = 9,
+    RMW_UMIN = 10
+  };
+
   /// OverflowingBinaryOperatorOptionalFlags - Flags for serializing
   /// OverflowingBinaryOperator's SubclassOptionalData contents.
   enum OverflowingBinaryOperatorOptionalFlags {
@@ -203,6 +220,23 @@ namespace bitc {
   /// SubclassOptionalData contents.
   enum SDivOperatorOptionalFlags {
     SDIV_EXACT = 0
+  };
+
+  /// Encoded AtomicOrdering values.
+  enum AtomicOrderingCodes {
+    ORDERING_NOTATOMIC = 0,
+    ORDERING_UNORDERED = 1,
+    ORDERING_MONOTONIC = 2,
+    ORDERING_ACQUIRE = 3,
+    ORDERING_RELEASE = 4,
+    ORDERING_ACQREL = 5,
+    ORDERING_SEQCST = 6
+  };
+
+  /// Encoded SynchronizationScope values.
+  enum AtomicSynchScopeCodes {
+    SYNCHSCOPE_SINGLETHREAD = 0,
+    SYNCHSCOPE_CROSSTHREAD = 1
   };
 
   // The function body block (FUNCTION_BLOCK_ID) describes function bodies.  It
@@ -230,8 +264,9 @@ namespace bitc {
     FUNC_CODE_INST_MALLOC      = 17, // MALLOC:     [instty, op, align]
     FUNC_CODE_INST_FREE        = 18, // FREE:       [opty, op]
     FUNC_CODE_INST_ALLOCA      = 19, // ALLOCA:     [instty, op, align]
+    // FIXME: Remove LOAD in favor of LOAD2 in LLVM 3.0
     FUNC_CODE_INST_LOAD        = 20, // LOAD:       [opty, op, align, vol]
-    // FIXME: Remove STORE in favor of STORE2 in LLVM 3.0
+    // FIXME: Remove STORE in favor of STORE3 in LLVM 3.0
     FUNC_CODE_INST_STORE       = 21, // STORE:      [valty,val,ptr, align, vol]
     // FIXME: Remove CALL in favor of CALL2 in LLVM 3.0
     FUNC_CODE_INST_CALL        = 22, // CALL with potentially invalid metadata
@@ -239,6 +274,7 @@ namespace bitc {
     // This store code encodes the pointer type, rather than the value type
     // this is so information only available in the pointer type (e.g. address
     // spaces) is retained.
+    // FIXME: Remove STORE2 in favor of STORE3 in LLVM 3.0
     FUNC_CODE_INST_STORE2      = 24, // STORE:      [ptrty,ptr,val, align, vol]
     // FIXME: Remove GETRESULT in favor of EXTRACTVAL in LLVM 3.0
     FUNC_CODE_INST_GETRESULT   = 25, // GETRESULT:  [ty, opval, n]
@@ -258,7 +294,18 @@ namespace bitc {
 
     FUNC_CODE_INST_CALL2       = 34, // CALL2:      [attr, fnty, fnid, args...]
 
-    FUNC_CODE_DEBUG_LOC2       = 35  // DEBUG_LOC2: [Line,Col,ScopeVal, IAVal]
+    FUNC_CODE_DEBUG_LOC2       = 35, // DEBUG_LOC2: [Line,Col,ScopeVal, IAVal]
+
+    FUNC_CODE_INST_LOAD2       = 36, // LOAD: [opty, op, align, vol,
+                                     //        ordering, synchscope]
+    FUNC_CODE_INST_STORE3      = 37, // STORE: [ptrty,ptr,val, align, vol,
+                                     //         ordering, synchscope]
+    FUNC_CODE_INST_CMPXCHG     = 38, // CMPXCHG: [ptrty,ptr,cmp,new, align, vol,
+                                     //           ordering, synchscope]
+    FUNC_CODE_INST_ATOMICRMW   = 39, // ATOMICRMW: [ptrty,ptr,val, operation,
+                                     //             align, vol,
+                                     //             ordering, synchscope]
+    FUNC_CODE_INST_FENCE       = 40  // FENCE: [ordering, synchscope]
   };
 } // End bitc namespace
 } // End llvm namespace
