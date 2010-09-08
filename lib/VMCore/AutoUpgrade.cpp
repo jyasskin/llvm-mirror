@@ -28,14 +28,18 @@ using namespace llvm;
 static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
   assert(F && "Illegal to upgrade a non-existent Function.");
 
-  // Get the Function's name.
-  const std::string& Name = F->getName();
+  // Get a copy of the Function's name.
+  std::string NameStr = F->getNameStr();
+  // Wrap the name into a StringRef for the better API.  The copy in the
+  // previous line is important because we use F->setName, which invalidates the
+  // StringRef returned by F->getName().
+  StringRef Name = NameStr;
 
   // Convenience
   const FunctionType *FTy = F->getFunctionType();
 
   // Quickly eliminate it, if it's not a candidate.
-  if (Name.length() <= 8 || Name[0] != 'l' || Name[1] != 'l' || 
+  if (Name.size() <= 8 || Name[0] != 'l' || Name[1] != 'l' || 
       Name[2] != 'v' || Name[3] != 'm' || Name[4] != '.')
     return false;
 
@@ -46,71 +50,71 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
     // This upgrades the llvm.atomic.lcs, llvm.atomic.las, llvm.atomic.lss,
     // and atomics with default address spaces to their new names to their new
     // function name (e.g. llvm.atomic.add.i32 => llvm.atomic.add.i32.p0i32)
-    if (Name.compare(5,7,"atomic.",7) == 0) {
-      if (Name.compare(12,3,"lcs",3) == 0) {
-        std::string::size_type delim = Name.find('.',12);
+    if (Name.substr(5,7) == "atomic.") {
+      if (Name.substr(12,3) == "lcs") {
+        StringRef::size_type delim = Name.find('.',12);
         F->setName("llvm.atomic.cmp.swap" + Name.substr(delim) +
                    ".p0" + Name.substr(delim+1));
         NewFn = F;
         return true;
       }
-      else if (Name.compare(12,3,"las",3) == 0) {
-        std::string::size_type delim = Name.find('.',12);
+      else if (Name.substr(12,3) == "las") {
+        StringRef::size_type delim = Name.find('.',12);
         F->setName("llvm.atomic.load.add"+Name.substr(delim)
                    + ".p0" + Name.substr(delim+1));
         NewFn = F;
         return true;
       }
-      else if (Name.compare(12,3,"lss",3) == 0) {
-        std::string::size_type delim = Name.find('.',12);
+      else if (Name.substr(12,3) == "lss") {
+        StringRef::size_type delim = Name.find('.',12);
         F->setName("llvm.atomic.load.sub"+Name.substr(delim)
                    + ".p0" + Name.substr(delim+1));
         NewFn = F;
         return true;
       }
-      else if (Name.rfind(".p") == std::string::npos) {
+      else if (Name.rfind(".p") == StringRef::npos) {
         // We don't have an address space qualifier so this has be upgraded
         // to the new name.  Copy the type name at the end of the intrinsic
         // and add to it
-        std::string::size_type delim = Name.find_last_of('.');
-        assert(delim != std::string::npos && "can not find type");
+        StringRef::size_type delim = Name.rfind('.');
+        assert(delim != StringRef::npos && "can not find type");
         F->setName(Name + ".p0" + Name.substr(delim+1));
         NewFn = F;
         return true;
       }
-    } else if (Name.compare(5, 9, "arm.neon.", 9) == 0) {
-      if (((Name.compare(14, 5, "vmovl", 5) == 0 ||
-            Name.compare(14, 5, "vaddl", 5) == 0 ||
-            Name.compare(14, 5, "vsubl", 5) == 0 ||
-            Name.compare(14, 5, "vaddw", 5) == 0 ||
-            Name.compare(14, 5, "vsubw", 5) == 0 ||
-            Name.compare(14, 5, "vmull", 5) == 0 ||
-            Name.compare(14, 5, "vmlal", 5) == 0 ||
-            Name.compare(14, 5, "vmlsl", 5) == 0 ||
-            Name.compare(14, 5, "vabdl", 5) == 0 ||
-            Name.compare(14, 5, "vabal", 5) == 0) &&
-           (Name.compare(19, 2, "s.", 2) == 0 ||
-            Name.compare(19, 2, "u.", 2) == 0)) ||
+    } else if (Name.substr(5, 9) == "arm.neon.") {
+      if (((Name.substr(14, 5) == "vmovl" ||
+            Name.substr(14, 5) == "vaddl" ||
+            Name.substr(14, 5) == "vsubl" ||
+            Name.substr(14, 5) == "vaddw" ||
+            Name.substr(14, 5) == "vsubw" ||
+            Name.substr(14, 5) == "vmull" ||
+            Name.substr(14, 5) == "vmlal" ||
+            Name.substr(14, 5) == "vmlsl" ||
+            Name.substr(14, 5) == "vabdl" ||
+            Name.substr(14, 5) == "vabal") &&
+           (Name.substr(19, 2) == "s." ||
+            Name.substr(19, 2) == "u.")) ||
 
-          (Name.compare(14, 4, "vaba", 4) == 0 &&
-           (Name.compare(18, 2, "s.", 2) == 0 ||
-            Name.compare(18, 2, "u.", 2) == 0)) ||
+          (Name.substr(14, 4) == "vaba" &&
+           (Name.substr(18, 2) == "s." ||
+            Name.substr(18, 2) == "u.")) ||
 
-          (Name.compare(14, 6, "vmovn.", 6) == 0)) {
+          (Name.substr(14, 6) == "vmovn.")) {
 
         // Calls to these are transformed into IR without intrinsics.
         NewFn = 0;
         return true;
       }
       // Old versions of NEON ld/st intrinsics are missing alignment arguments.
-      bool isVLd = (Name.compare(14, 3, "vld", 3) == 0);
-      bool isVSt = (Name.compare(14, 3, "vst", 3) == 0);
+      bool isVLd = (Name.substr(14, 3) == "vld");
+      bool isVSt = (Name.substr(14, 3) == "vst");
       if (isVLd || isVSt) {
-        unsigned NumVecs = Name.at(17) - '0';
+        unsigned NumVecs = Name[17] - '0';
         if (NumVecs == 0 || NumVecs > 4)
           return false;
-        bool isLaneOp = (Name.compare(18, 5, "lane.", 5) == 0);
-        if (!isLaneOp && Name.at(18) != '.')
+        bool isLaneOp = (Name.substr(18, 5) == "lane.");
+        if (!isLaneOp && Name[18] != '.')
           return false;
         unsigned ExpectedArgs = 2; // for the address and alignment
         if (isVSt || isLaneOp)
@@ -142,10 +146,10 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
     //  a single type name for overloading. We only care about the old format
     //  'llvm.bswap.i*.i*', so check for 'bswap.' and then for there being 
     //  a '.' after 'bswap.'
-    if (Name.compare(5,6,"bswap.",6) == 0) {
-      std::string::size_type delim = Name.find('.',11);
+    if (Name.substr(5,6) == "bswap.") {
+      StringRef::size_type delim = Name.find('.',11);
       
-      if (delim != std::string::npos) {
+      if (delim != StringRef::npos) {
         //  Construct the new name as 'llvm.bswap' + '.i*'
         F->setName(Name.substr(0,10)+Name.substr(delim));
         NewFn = F;
@@ -158,9 +162,9 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
     //  We only want to fix the 'llvm.ct*' intrinsics which do not have the 
     //  correct return type, so we check for the name, and then check if the 
     //  return type does not match the parameter type.
-    if ( (Name.compare(5,5,"ctpop",5) == 0 ||
-          Name.compare(5,4,"ctlz",4) == 0 ||
-          Name.compare(5,4,"cttz",4) == 0) &&
+    if ( (Name.substr(5,5) == "ctpop" ||
+          Name.substr(5,4) == "ctlz" ||
+          Name.substr(5,4) == "cttz") &&
         FTy->getReturnType() != FTy->getParamType(0)) {
       //  We first need to change the name of the old (bad) intrinsic, because 
       //  its type is incorrect, but we cannot overload that name. We 
@@ -181,24 +185,24 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
 
   case 'e':
     //  The old llvm.eh.selector.i32 is equivalent to the new llvm.eh.selector.
-    if (Name.compare("llvm.eh.selector.i32") == 0) {
+    if (Name == "llvm.eh.selector.i32") {
       F->setName("llvm.eh.selector");
       NewFn = F;
       return true;
     }
     //  The old llvm.eh.typeid.for.i32 is equivalent to llvm.eh.typeid.for.
-    if (Name.compare("llvm.eh.typeid.for.i32") == 0) {
+    if (Name == "llvm.eh.typeid.for.i32") {
       F->setName("llvm.eh.typeid.for");
       NewFn = F;
       return true;
     }
     //  Convert the old llvm.eh.selector.i64 to a call to llvm.eh.selector.
-    if (Name.compare("llvm.eh.selector.i64") == 0) {
+    if (Name == "llvm.eh.selector.i64") {
       NewFn = Intrinsic::getDeclaration(M, Intrinsic::eh_selector);
       return true;
     }
     //  Convert the old llvm.eh.typeid.for.i64 to a call to llvm.eh.typeid.for.
-    if (Name.compare("llvm.eh.typeid.for.i64") == 0) {
+    if (Name == "llvm.eh.typeid.for.i64") {
       NewFn = Intrinsic::getDeclaration(M, Intrinsic::eh_typeid_for);
       return true;
     }
@@ -209,33 +213,33 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
     // new format that allows overloading the pointer for different address
     // space (e.g., llvm.memcpy.i16 => llvm.memcpy.p0i8.p0i8.i16)
     const char* NewFnName = NULL;
-    if (Name.compare(5,8,"memcpy.i",8) == 0) {
+    if (Name.substr(5,8) == "memcpy.i") {
       if (Name[13] == '8')
         NewFnName = "llvm.memcpy.p0i8.p0i8.i8";
-      else if (Name.compare(13,2,"16") == 0)
+      else if (Name.substr(13,2) == "16")
         NewFnName = "llvm.memcpy.p0i8.p0i8.i16";
-      else if (Name.compare(13,2,"32") == 0)
+      else if (Name.substr(13,2) == "32")
         NewFnName = "llvm.memcpy.p0i8.p0i8.i32";
-      else if (Name.compare(13,2,"64") == 0)
+      else if (Name.substr(13,2) == "64")
         NewFnName = "llvm.memcpy.p0i8.p0i8.i64";
-    } else if (Name.compare(5,9,"memmove.i",9) == 0) {
+    } else if (Name.substr(5,9) == "memmove.i") {
       if (Name[14] == '8')
         NewFnName = "llvm.memmove.p0i8.p0i8.i8";
-      else if (Name.compare(14,2,"16") == 0)
+      else if (Name.substr(14,2) == "16")
         NewFnName = "llvm.memmove.p0i8.p0i8.i16";
-      else if (Name.compare(14,2,"32") == 0)
+      else if (Name.substr(14,2) == "32")
         NewFnName = "llvm.memmove.p0i8.p0i8.i32";
-      else if (Name.compare(14,2,"64") == 0)
+      else if (Name.substr(14,2) == "64")
         NewFnName = "llvm.memmove.p0i8.p0i8.i64";
     }
-    else if (Name.compare(5,8,"memset.i",8) == 0) {
+    else if (Name.substr(5,8) == "memset.i") {
       if (Name[13] == '8')
         NewFnName = "llvm.memset.p0i8.i8";
-      else if (Name.compare(13,2,"16") == 0)
+      else if (Name.substr(13,2) == "16")
         NewFnName = "llvm.memset.p0i8.i16";
-      else if (Name.compare(13,2,"32") == 0)
+      else if (Name.substr(13,2) == "32")
         NewFnName = "llvm.memset.p0i8.i32";
-      else if (Name.compare(13,2,"64") == 0)
+      else if (Name.substr(13,2) == "64")
         NewFnName = "llvm.memset.p0i8.i64";
     }
     if (NewFnName) {
@@ -255,10 +259,10 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
     //  This upgrades the llvm.part.select overloaded intrinsic names to only 
     //  use one type specifier in the name. We only care about the old format
     //  'llvm.part.select.i*.i*', and solve as above with bswap.
-    if (Name.compare(5,12,"part.select.",12) == 0) {
-      std::string::size_type delim = Name.find('.',17);
+    if (Name.substr(5,12) == "part.select.") {
+      StringRef::size_type delim = Name.find('.',17);
       
-      if (delim != std::string::npos) {
+      if (delim != StringRef::npos) {
         //  Construct a new name as 'llvm.part.select' + '.i*'
         F->setName(Name.substr(0,16)+Name.substr(delim));
         NewFn = F;
@@ -272,11 +276,11 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
     //  must match. There is an additional type specifier after these two 
     //  matching types that we must retain when upgrading.  Thus, we require 
     //  finding 2 periods, not just one, after the intrinsic name.
-    if (Name.compare(5,9,"part.set.",9) == 0) {
-      std::string::size_type delim = Name.find('.',14);
+    if (Name.substr(5,9) == "part.set.") {
+      StringRef::size_type delim = Name.find('.',14);
 
-      if (delim != std::string::npos &&
-          Name.find('.',delim+1) != std::string::npos) {
+      if (delim != StringRef::npos &&
+          Name.find('.',delim+1) != StringRef::npos) {
         //  Construct a new name as 'llvm.part.select' + '.i*.i*'
         F->setName(Name.substr(0,13)+Name.substr(delim));
         NewFn = F;
@@ -289,32 +293,32 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
   case 'x': 
     // This fixes all MMX shift intrinsic instructions to take a
     // x86_mmx instead of a v1i64, v2i32, v4i16, or v8i8.
-    if (Name.compare(5, 8, "x86.mmx.", 8) == 0) {
+    if (Name.substr(5, 8) == "x86.mmx.") {
       const Type *X86_MMXTy = VectorType::getX86_MMXTy(FTy->getContext());
 
-      if (Name.compare(13, 4, "padd", 4) == 0   ||
-          Name.compare(13, 4, "psub", 4) == 0   ||
-          Name.compare(13, 4, "pmul", 4) == 0   ||
-          Name.compare(13, 5, "pmadd", 5) == 0  ||
-          Name.compare(13, 4, "pand", 4) == 0   ||
-          Name.compare(13, 3, "por", 3) == 0    ||
-          Name.compare(13, 4, "pxor", 4) == 0   ||
-          Name.compare(13, 4, "pavg", 4) == 0   ||
-          Name.compare(13, 4, "pmax", 4) == 0   ||
-          Name.compare(13, 4, "pmin", 4) == 0   ||
-          Name.compare(13, 4, "psad", 4) == 0   ||
-          Name.compare(13, 4, "psll", 4) == 0   ||
-          Name.compare(13, 4, "psrl", 4) == 0   ||
-          Name.compare(13, 4, "psra", 4) == 0   ||
-          Name.compare(13, 4, "pack", 4) == 0   ||
-          Name.compare(13, 6, "punpck", 6) == 0 ||
-          Name.compare(13, 4, "pcmp", 4) == 0) {
+      if (Name.substr(13, 4) == "padd"   ||
+          Name.substr(13, 4) == "psub"   ||
+          Name.substr(13, 4) == "pmul"   ||
+          Name.substr(13, 5) == "pmadd"  ||
+          Name.substr(13, 4) == "pand"   ||
+          Name.substr(13, 3) == "por"    ||
+          Name.substr(13, 4) == "pxor"   ||
+          Name.substr(13, 4) == "pavg"   ||
+          Name.substr(13, 4) == "pmax"   ||
+          Name.substr(13, 4) == "pmin"   ||
+          Name.substr(13, 4) == "psad"   ||
+          Name.substr(13, 4) == "psll"   ||
+          Name.substr(13, 4) == "psrl"   ||
+          Name.substr(13, 4) == "psra"   ||
+          Name.substr(13, 4) == "pack"   ||
+          Name.substr(13, 6) == "punpck" ||
+          Name.substr(13, 4) == "pcmp") {
         assert(FTy->getNumParams() == 2 && "MMX intrinsic takes 2 args!");
         const Type *SecondParamTy = X86_MMXTy;
 
-        if (Name.compare(13, 5, "pslli", 5) == 0 ||
-            Name.compare(13, 5, "psrli", 5) == 0 ||
-            Name.compare(13, 5, "psrai", 5) == 0)
+        if (Name.substr(13, 5) == "pslli" ||
+            Name.substr(13, 5) == "psrli" ||
+            Name.substr(13, 5) == "psrai")
           SecondParamTy = FTy->getParamType(1);
 
         // Don't do anything if it has the correct types.
@@ -338,7 +342,7 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
         return true;
       }
 
-      if (Name.compare(13, 8, "maskmovq", 8) == 0) {
+      if (Name.substr(13, 8) == "maskmovq") {
         // Don't do anything if it has the correct types.
         if (FTy->getParamType(0) == X86_MMXTy &&
             FTy->getParamType(1) == X86_MMXTy)
@@ -354,7 +358,7 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
         return true;
       }
 
-      if (Name.compare(13, 8, "pmovmskb", 8) == 0) {
+      if (Name.substr(13, 8) == "pmovmskb") {
         if (FTy->getParamType(0) == X86_MMXTy)
           break;
 
@@ -366,7 +370,7 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
         return true;
       }
 
-      if (Name.compare(13, 5, "movnt", 5) == 0) {
+      if (Name.substr(13, 5) == "movnt") {
         if (FTy->getParamType(1) == X86_MMXTy)
           break;
 
@@ -379,7 +383,7 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
         return true;
       }
 
-      if (Name.compare(13, 7, "palignr", 7) == 0) {
+      if (Name.substr(13, 7) == "palignr") {
         if (FTy->getReturnType() == X86_MMXTy &&
             FTy->getParamType(0) == X86_MMXTy &&
             FTy->getParamType(1) == X86_MMXTy)
@@ -395,7 +399,7 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
         return true;
       }
 
-      if (Name.compare(13, 5, "pextr", 5) == 0) {
+      if (Name.substr(13, 5) == "pextr") {
         if (FTy->getParamType(0) == X86_MMXTy)
           break;
 
@@ -408,7 +412,7 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
         return true;
       }
 
-      if (Name.compare(13, 5, "pinsr", 5) == 0) {
+      if (Name.substr(13, 5) == "pinsr") {
         if (FTy->getReturnType() == X86_MMXTy &&
             FTy->getParamType(0) == X86_MMXTy)
           break;
@@ -423,7 +427,7 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
         return true;
       }
 
-      if (Name.compare(13, 12, "cvtsi32.si64", 12) == 0) {
+      if (Name.substr(13, 12) == "cvtsi32.si64") {
         if (FTy->getReturnType() == X86_MMXTy)
           break;
 
@@ -435,7 +439,7 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
         return true;
       }
 
-      if (Name.compare(13, 12, "cvtsi64.si32", 12) == 0) {
+      if (Name.substr(13, 12) == "cvtsi64.si32") {
         if (FTy->getParamType(0) == X86_MMXTy)
           break;
 
@@ -447,13 +451,13 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
         return true;
       }
 
-      if (Name.compare(13, 8, "vec.init", 8) == 0) {
+      if (Name.substr(13, 8) == "vec.init") {
         if (FTy->getReturnType() == X86_MMXTy)
           break;
 
         F->setName("");
 
-        if (Name.compare(21, 2, ".b", 2) == 0)
+        if (Name.substr(21, 2) == ".b")
           NewFn = cast<Function>(M->getOrInsertFunction(Name, 
                                                         X86_MMXTy,
                                                         FTy->getParamType(0),
@@ -465,7 +469,7 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
                                                         FTy->getParamType(6),
                                                         FTy->getParamType(7),
                                                         (Type*)0));
-        else if (Name.compare(21, 2, ".w", 2) == 0)
+        else if (Name.substr(21, 2) == ".w")
           NewFn = cast<Function>(M->getOrInsertFunction(Name, 
                                                         X86_MMXTy,
                                                         FTy->getParamType(0),
@@ -473,7 +477,7 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
                                                         FTy->getParamType(2),
                                                         FTy->getParamType(3),
                                                         (Type*)0));
-        else if (Name.compare(21, 2, ".d", 2) == 0)
+        else if (Name.substr(21, 2) == ".d")
           NewFn = cast<Function>(M->getOrInsertFunction(Name, 
                                                         X86_MMXTy,
                                                         FTy->getParamType(0),
@@ -483,7 +487,7 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
       }
 
 
-      if (Name.compare(13, 9, "vec.ext.d", 9) == 0) {
+      if (Name.substr(13, 9) == "vec.ext.d") {
         if (FTy->getReturnType() == X86_MMXTy &&
             FTy->getParamType(0) == X86_MMXTy)
           break;
@@ -497,8 +501,8 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
         return true;
       }
 
-      if (Name.compare(13, 9, "emms", 4) == 0 ||
-          Name.compare(13, 9, "femms", 5) == 0) {
+      if (Name.substr(13, 9) == "emms" ||
+          Name.substr(13, 9) == "femms") {
         NewFn = 0;
         break;
       }
@@ -506,29 +510,29 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
       // We really shouldn't get here ever.
       assert(0 && "Invalid MMX intrinsic!");
       break;
-    } else if (Name.compare(5,17,"x86.sse2.loadh.pd",17) == 0 ||
-               Name.compare(5,17,"x86.sse2.loadl.pd",17) == 0 ||
-               Name.compare(5,16,"x86.sse2.movl.dq",16) == 0 ||
-               Name.compare(5,15,"x86.sse2.movs.d",15) == 0 ||
-               Name.compare(5,16,"x86.sse2.shuf.pd",16) == 0 ||
-               Name.compare(5,18,"x86.sse2.unpckh.pd",18) == 0 ||
-               Name.compare(5,18,"x86.sse2.unpckl.pd",18) == 0 ||
-               Name.compare(5,20,"x86.sse2.punpckh.qdq",20) == 0 ||
-               Name.compare(5,20,"x86.sse2.punpckl.qdq",20) == 0) {
+    } else if (Name.substr(5,17)=="x86.sse2.loadh.pd" ||
+               Name.substr(5,17)=="x86.sse2.loadl.pd" ||
+               Name.substr(5,16)=="x86.sse2.movl.dq" ||
+               Name.substr(5,15)=="x86.sse2.movs.d" ||
+               Name.substr(5,16)=="x86.sse2.shuf.pd" ||
+               Name.substr(5,18)=="x86.sse2.unpckh.pd" ||
+               Name.substr(5,18)=="x86.sse2.unpckl.pd" ||
+               Name.substr(5,20)=="x86.sse2.punpckh.qdq" ||
+               Name.substr(5,20)=="x86.sse2.punpckl.qdq") {
       // Calls to these intrinsics are transformed into ShuffleVector's.
       NewFn = 0;
       return true;
-    } else if (Name.compare(5, 16, "x86.sse41.pmulld", 16) == 0) {
+    } else if (Name.substr(5, 16) == "x86.sse41.pmulld") {
       // Calls to these intrinsics are transformed into vector multiplies.
       NewFn = 0;
       return true;
-    } else if (Name.compare(5, 18, "x86.ssse3.palign.r", 18) == 0 ||
-               Name.compare(5, 22, "x86.ssse3.palign.r.128", 22) == 0) {
+    } else if (Name.substr(5, 18) == "x86.ssse3.palign.r" ||
+               Name.substr(5, 22) == "x86.ssse3.palign.r.128") {
       // Calls to these intrinsics are transformed into vector shuffles, shifts,
       // or 0.
       NewFn = 0;
-      return true;           
-    } else if (Name.compare(5, 17, "x86.ssse3.pshuf.w", 17) == 0) {
+      return true;
+    } else if (Name.substr(5, 17) == "x86.ssse3.pshuf.w") {
       // This is an SSE/MMX instruction.
       const Type *X86_MMXTy = VectorType::getX86_MMXTy(FTy->getContext());
       NewFn =
@@ -674,47 +678,47 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
 
   if (!NewFn) {
     // Get the Function's name.
-    const std::string& Name = F->getName();
+    StringRef Name = F->getName();
 
     // Upgrade ARM NEON intrinsics.
-    if (Name.compare(5, 9, "arm.neon.", 9) == 0) {
+    if (Name.substr(5, 9) == "arm.neon.") {
       Instruction *NewI;
       Value *V0, *V1;
-      if (Name.compare(14, 7, "vmovls.", 7) == 0) {
+      if (Name.substr(14, 7) == "vmovls.") {
         NewI = new SExtInst(CI->getArgOperand(0), CI->getType(),
                             "upgraded." + CI->getName(), CI);
-      } else if (Name.compare(14, 7, "vmovlu.", 7) == 0) {
+      } else if (Name.substr(14, 7) == "vmovlu.") {
         NewI = new ZExtInst(CI->getArgOperand(0), CI->getType(),
                             "upgraded." + CI->getName(), CI);
-      } else if (Name.compare(14, 4, "vadd", 4) == 0) {
+      } else if (Name.substr(14, 4) == "vadd") {
         ExtendNEONArgs(CI, CI->getArgOperand(0), CI->getArgOperand(1), V0, V1);
         NewI = BinaryOperator::CreateAdd(V0, V1, "upgraded."+CI->getName(), CI);
-      } else if (Name.compare(14, 4, "vsub", 4) == 0) {
+      } else if (Name.substr(14, 4) == "vsub") {
         ExtendNEONArgs(CI, CI->getArgOperand(0), CI->getArgOperand(1), V0, V1);
         NewI = BinaryOperator::CreateSub(V0, V1,"upgraded."+CI->getName(),CI);
-      } else if (Name.compare(14, 4, "vmul", 4) == 0) {
+      } else if (Name.substr(14, 4) == "vmul") {
         ExtendNEONArgs(CI, CI->getArgOperand(0), CI->getArgOperand(1), V0, V1);
         NewI = BinaryOperator::CreateMul(V0, V1,"upgraded."+CI->getName(),CI);
-      } else if (Name.compare(14, 4, "vmla", 4) == 0) {
+      } else if (Name.substr(14, 4) == "vmla") {
         ExtendNEONArgs(CI, CI->getArgOperand(1), CI->getArgOperand(2), V0, V1);
         Instruction *MulI = BinaryOperator::CreateMul(V0, V1, "", CI);
         NewI = BinaryOperator::CreateAdd(CI->getArgOperand(0), MulI,
                                          "upgraded."+CI->getName(), CI);
-      } else if (Name.compare(14, 4, "vmls", 4) == 0) {
+      } else if (Name.substr(14, 4) == "vmls") {
         ExtendNEONArgs(CI, CI->getArgOperand(1), CI->getArgOperand(2), V0, V1);
         Instruction *MulI = BinaryOperator::CreateMul(V0, V1, "", CI);
         NewI = BinaryOperator::CreateSub(CI->getArgOperand(0), MulI,
                                          "upgraded."+CI->getName(), CI);
-      } else if (Name.compare(14, 4, "vabd", 4) == 0) {
+      } else if (Name.substr(14, 4) == "vabd") {
         NewI = CallVABD(CI, CI->getArgOperand(0), CI->getArgOperand(1));
         NewI = new ZExtInst(NewI, CI->getType(), "upgraded."+CI->getName(), CI);
-      } else if (Name.compare(14, 4, "vaba", 4) == 0) {
+      } else if (Name.substr(14, 4) == "vaba") {
         NewI = CallVABD(CI, CI->getArgOperand(1), CI->getArgOperand(2));
-        if (Name.at(18) == 'l')
+        if (Name[18] == 'l')
           NewI = new ZExtInst(NewI, CI->getType(), "", CI);
         NewI = BinaryOperator::CreateAdd(CI->getArgOperand(0), NewI,
                                          "upgraded."+CI->getName(), CI);
-      } else if (Name.compare(14, 6, "vmovn.", 6) == 0) {
+      } else if (Name.substr(14, 6) == "vmovn.") {
         NewI = new TruncInst(CI->getArgOperand(0), CI->getType(),
                              "upgraded." + CI->getName(), CI);
       } else {
