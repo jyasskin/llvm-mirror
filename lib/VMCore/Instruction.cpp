@@ -310,6 +310,10 @@ bool Instruction::mayReadFromMemory() const {
   default: return false;
   case Instruction::VAArg:
   case Instruction::Load:
+  case Instruction::Fence:  // This is a lie, but prevents reordering
+                            // appropriately.
+  case Instruction::AtomicCmpXchg:
+  case Instruction::AtomicRMW:
     return true;
   case Instruction::Call:
     return !cast<CallInst>(this)->doesNotAccessMemory();
@@ -326,6 +330,10 @@ bool Instruction::mayWriteToMemory() const {
   switch (getOpcode()) {
   default: return false;
   case Instruction::Store:
+  case Instruction::Fence:  // This is a lie, but prevents reordering
+                            // appropriately.
+  case Instruction::AtomicCmpXchg:
+  case Instruction::AtomicRMW:
   case Instruction::VAArg:
     return true;
   case Instruction::Call:

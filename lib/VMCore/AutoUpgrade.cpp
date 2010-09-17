@@ -47,41 +47,10 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
   switch (Name[5]) {
   default: break;
   case 'a':
-    // This upgrades the llvm.atomic.lcs, llvm.atomic.las, llvm.atomic.lss,
-    // and atomics with default address spaces to their new names to their new
-    // function name (e.g. llvm.atomic.add.i32 => llvm.atomic.add.i32.p0i32)
     if (Name.substr(5,7) == "atomic.") {
-      if (Name.substr(12,3) == "lcs") {
-        StringRef::size_type delim = Name.find('.',12);
-        F->setName("llvm.atomic.cmp.swap" + Name.substr(delim) +
-                   ".p0" + Name.substr(delim+1));
-        NewFn = F;
-        return true;
-      }
-      else if (Name.substr(12,3) == "las") {
-        StringRef::size_type delim = Name.find('.',12);
-        F->setName("llvm.atomic.load.add"+Name.substr(delim)
-                   + ".p0" + Name.substr(delim+1));
-        NewFn = F;
-        return true;
-      }
-      else if (Name.substr(12,3) == "lss") {
-        StringRef::size_type delim = Name.find('.',12);
-        F->setName("llvm.atomic.load.sub"+Name.substr(delim)
-                   + ".p0" + Name.substr(delim+1));
-        NewFn = F;
-        return true;
-      }
-      else if (Name.rfind(".p") == StringRef::npos) {
-        // We don't have an address space qualifier so this has be upgraded
-        // to the new name.  Copy the type name at the end of the intrinsic
-        // and add to it
-        StringRef::size_type delim = Name.rfind('.');
-        assert(delim != StringRef::npos && "can not find type");
-        F->setName(Name + ".p0" + Name.substr(delim+1));
-        NewFn = F;
-        return true;
-      }
+      // This upgrades the llvm.atomic.* intrinsics to instructions.
+      NewFn = 0;
+      return true;
     } else if (Name.substr(5, 9) == "arm.neon.") {
       if (((Name.substr(14, 5) == "vmovl" ||
             Name.substr(14, 5) == "vaddl" ||
@@ -209,49 +178,55 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
     break;
 
   case 'm': {
-    // This upgrades the llvm.memcpy, llvm.memmove, and llvm.memset to the
-    // new format that allows overloading the pointer for different address
-    // space (e.g., llvm.memcpy.i16 => llvm.memcpy.p0i8.p0i8.i16)
-    const char* NewFnName = NULL;
-    if (Name.substr(5,8) == "memcpy.i") {
-      if (Name[13] == '8')
-        NewFnName = "llvm.memcpy.p0i8.p0i8.i8";
-      else if (Name.substr(13,2) == "16")
-        NewFnName = "llvm.memcpy.p0i8.p0i8.i16";
-      else if (Name.substr(13,2) == "32")
-        NewFnName = "llvm.memcpy.p0i8.p0i8.i32";
-      else if (Name.substr(13,2) == "64")
-        NewFnName = "llvm.memcpy.p0i8.p0i8.i64";
-    } else if (Name.substr(5,9) == "memmove.i") {
-      if (Name[14] == '8')
-        NewFnName = "llvm.memmove.p0i8.p0i8.i8";
-      else if (Name.substr(14,2) == "16")
-        NewFnName = "llvm.memmove.p0i8.p0i8.i16";
-      else if (Name.substr(14,2) == "32")
-        NewFnName = "llvm.memmove.p0i8.p0i8.i32";
-      else if (Name.substr(14,2) == "64")
-        NewFnName = "llvm.memmove.p0i8.p0i8.i64";
-    }
-    else if (Name.substr(5,8) == "memset.i") {
-      if (Name[13] == '8')
-        NewFnName = "llvm.memset.p0i8.i8";
-      else if (Name.substr(13,2) == "16")
-        NewFnName = "llvm.memset.p0i8.i16";
-      else if (Name.substr(13,2) == "32")
-        NewFnName = "llvm.memset.p0i8.i32";
-      else if (Name.substr(13,2) == "64")
-        NewFnName = "llvm.memset.p0i8.i64";
-    }
-    if (NewFnName) {
-      NewFn = cast<Function>(M->getOrInsertFunction(NewFnName, 
-                                            FTy->getReturnType(),
-                                            FTy->getParamType(0),
-                                            FTy->getParamType(1),
-                                            FTy->getParamType(2),
-                                            FTy->getParamType(3),
-                                            Type::getInt1Ty(F->getContext()),
-                                            (Type *)0));
+    if (Name.substr(5, 14) == "memory.barrier") {
+      // This turns into a fence instruction.
+      NewFn = 0;
       return true;
+    } else {
+      // This upgrades the llvm.memcpy, llvm.memmove, and llvm.memset to the
+      // new format that allows overloading the pointer for different address
+      // space (e.g., llvm.memcpy.i16 => llvm.memcpy.p0i8.p0i8.i16)
+      const char* NewFnName = NULL;
+      if (Name.substr(5,8) == "memcpy.i") {
+        if (Name[13] == '8')
+          NewFnName = "llvm.memcpy.p0i8.p0i8.i8";
+        else if (Name.substr(13,2) == "16")
+          NewFnName = "llvm.memcpy.p0i8.p0i8.i16";
+        else if (Name.substr(13,2) == "32")
+          NewFnName = "llvm.memcpy.p0i8.p0i8.i32";
+        else if (Name.substr(13,2) == "64")
+          NewFnName = "llvm.memcpy.p0i8.p0i8.i64";
+      } else if (Name.substr(5,9) == "memmove.i") {
+        if (Name[14] == '8')
+          NewFnName = "llvm.memmove.p0i8.p0i8.i8";
+        else if (Name.substr(14,2) == "16")
+          NewFnName = "llvm.memmove.p0i8.p0i8.i16";
+        else if (Name.substr(14,2) == "32")
+          NewFnName = "llvm.memmove.p0i8.p0i8.i32";
+        else if (Name.substr(14,2) == "64")
+          NewFnName = "llvm.memmove.p0i8.p0i8.i64";
+      }
+      else if (Name.substr(5,8) == "memset.i") {
+        if (Name[13] == '8')
+          NewFnName = "llvm.memset.p0i8.i8";
+        else if (Name.substr(13,2) == "16")
+          NewFnName = "llvm.memset.p0i8.i16";
+        else if (Name.substr(13,2) == "32")
+          NewFnName = "llvm.memset.p0i8.i32";
+        else if (Name.substr(13,2) == "64")
+          NewFnName = "llvm.memset.p0i8.i64";
+      }
+      if (NewFnName) {
+        NewFn = cast<Function>(M->getOrInsertFunction(NewFnName, 
+                                                      FTy->getReturnType(),
+                                                      FTy->getParamType(0),
+                                                      FTy->getParamType(1),
+                                                      FTy->getParamType(2),
+                                                      FTy->getParamType(3),
+                                                      Type::getInt1Ty(F->getContext()),
+                                                      (Type *)0));
+        return true;
+      }
     }
     break;
   }
@@ -677,12 +652,12 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
   assert(F && "CallInst has no function associated with it.");
 
   if (!NewFn) {
+    Instruction *NewI = NULL;
     // Get the Function's name.
     StringRef Name = F->getName();
 
     // Upgrade ARM NEON intrinsics.
     if (Name.substr(5, 9) == "arm.neon.") {
-      Instruction *NewI;
       Value *V0, *V1;
       if (Name.substr(14, 7) == "vmovls.") {
         NewI = new SExtInst(CI->getArgOperand(0), CI->getType(),
@@ -724,6 +699,90 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
       } else {
         llvm_unreachable("Unknown arm.neon function for CallInst upgrade.");
       }
+    } else if (Name.substr(5, 7) == "atomic.") {
+       if (Name.substr(12, 3) == "lcs" ||
+           Name.substr(12, 8) == "cmp.swap") {
+         NewI = new AtomicCmpXchgInst(
+           CI->getArgOperand(0), CI->getArgOperand(1), CI->getArgOperand(2),
+           Monotonic, CrossThread, CI);
+       }
+       else if (Name.substr(12,4) == "swap") {
+         NewI = new AtomicRMWInst(AtomicRMWInst::Xchg,
+                                  CI->getArgOperand(0), CI->getArgOperand(1),
+                                  Monotonic, CrossThread, CI);
+       }
+       else if (Name.substr(12,3) == "las" ||
+                Name.substr(12,8) == "load.add") {
+         NewI = new AtomicRMWInst(AtomicRMWInst::Add,
+                                  CI->getArgOperand(0), CI->getArgOperand(1),
+                                  Monotonic, CrossThread, CI);
+       }
+       else if (Name.substr(12,3) == "lss" ||
+                Name.substr(12,8) == "load.sub") {
+         NewI = new AtomicRMWInst(AtomicRMWInst::Sub,
+                                  CI->getArgOperand(0), CI->getArgOperand(1),
+                                  Monotonic, CrossThread, CI);
+       }
+       else if (Name.substr(12,8) == "load.and") {
+         NewI = new AtomicRMWInst(AtomicRMWInst::And,
+                                  CI->getArgOperand(0), CI->getArgOperand(1),
+                                  Monotonic, CrossThread, CI);
+       }
+       else if (Name.substr(12,9) == "load.nand") {
+         NewI = new AtomicRMWInst(AtomicRMWInst::Nand,
+                                  CI->getArgOperand(0), CI->getArgOperand(1),
+                                  Monotonic, CrossThread, CI);
+       }
+       else if (Name.substr(12,7) == "load.or") {
+         NewI = new AtomicRMWInst(AtomicRMWInst::Or,
+                                  CI->getArgOperand(0), CI->getArgOperand(1),
+                                  Monotonic, CrossThread, CI);
+       }
+       else if (Name.substr(12,8) == "load.xor") {
+         NewI = new AtomicRMWInst(AtomicRMWInst::Xor,
+                                  CI->getArgOperand(0), CI->getArgOperand(1),
+                                  Monotonic, CrossThread, CI);
+       }
+       else if (Name.substr(12,8) == "load.max") {
+         NewI = new AtomicRMWInst(AtomicRMWInst::Max,
+                                  CI->getArgOperand(0), CI->getArgOperand(1),
+                                  Monotonic, CrossThread, CI);
+       }
+       else if (Name.substr(12,8) == "load.min") {
+         NewI = new AtomicRMWInst(AtomicRMWInst::Min,
+                                  CI->getArgOperand(0), CI->getArgOperand(1),
+                                  Monotonic, CrossThread, CI);
+       }
+       else if (Name.substr(12,9) == "load.umax") {
+         NewI = new AtomicRMWInst(AtomicRMWInst::UMax,
+                                  CI->getArgOperand(0), CI->getArgOperand(1),
+                                  Monotonic, CrossThread, CI);
+       }
+       else if (Name.substr(12,9) == "load.umin") {
+         NewI = new AtomicRMWInst(AtomicRMWInst::UMin,
+                                  CI->getArgOperand(0), CI->getArgOperand(1),
+                                  Monotonic, CrossThread, CI);
+       }
+    } else if (Name.substr(5, 14) == "memory.barrier") {
+      unsigned LL = cast<ConstantInt>(CI->getArgOperand(0))->getZExtValue();
+      unsigned SL = cast<ConstantInt>(CI->getArgOperand(2))->getZExtValue();
+      unsigned SS = cast<ConstantInt>(CI->getArgOperand(3))->getZExtValue();
+      AtomicOrdering Ordering;
+      if (SL)
+        Ordering = SequentiallyConsistent;
+      else if (LL && SS)
+        Ordering = AcquireRelease;
+      else if (SS)
+        Ordering = Release;
+      else if (LL)
+        Ordering = Acquire;
+      else
+        Ordering = Acquire;  // Could just as well be Release.
+
+      NewI = new FenceInst(CI->getContext(), Ordering, CrossThread, CI);
+    }
+
+    if (NewI != NULL) {
       // Replace any uses of the old CallInst.
       if (!CI->use_empty())
         CI->replaceAllUsesWith(NewI);

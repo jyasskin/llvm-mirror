@@ -198,6 +198,13 @@ AliasAnalysis::getModRefInfo(const LoadInst *L, const Location &Loc) {
   if (L->isVolatile())
     return ModRef;
 
+  // Acquire and higher ordered loads need to avoid moving below other memory
+  // accesses to any address.  This completely blocks reordering, which is
+  // acceptable as a first approximation.  We can improve this by taking into
+  // account operation ordering.
+  if (L->getOrdering() > Monotonic)
+    return ModRef;
+
   // If the load address doesn't alias the given address, it doesn't read
   // or write the specified memory.
   if (!alias(Location(L->getOperand(0),
@@ -205,6 +212,11 @@ AliasAnalysis::getModRefInfo(const LoadInst *L, const Location &Loc) {
                       L->getMetadata(LLVMContext::MD_tbaa)),
              Loc))
     return NoModRef;
+
+  // A monotonic load needs to keep its order with another load of the same
+  // address.
+  if (L->getOrdering() == Monotonic)
+    return ModRef;
 
   // Otherwise, a load just reads.
   return Ref;
@@ -214,6 +226,13 @@ AliasAnalysis::ModRefResult
 AliasAnalysis::getModRefInfo(const StoreInst *S, const Location &Loc) {
   // Be conservative in the face of volatile.
   if (S->isVolatile())
+    return ModRef;
+
+  // Release and higher ordered stores need to avoid moving below other memory
+  // accesses to any address.  This completely blocks reordering, which is
+  // acceptable as a first approximation.  We can improve this by taking into
+  // account operation ordering.
+  if (S->getOrdering() > Monotonic)
     return ModRef;
 
   // If the store address cannot alias the pointer in question, then the
@@ -229,8 +248,70 @@ AliasAnalysis::getModRefInfo(const StoreInst *S, const Location &Loc) {
   if (pointsToConstantMemory(Loc))
     return NoModRef;
 
+  // A monotonic store needs to keep its order with another operation on the
+  // same address.
+  if (S->getOrdering() == Monotonic)
+    return ModRef;
+
   // Otherwise, a store just writes.
   return Mod;
+}
+
+AliasAnalysis::ModRefResult
+AliasAnalysis::getModRefInfo(const FenceInst *F, const Location &Loc) {
+  // We may be able to do somewhat better by paying attention to the order of F
+  // and the use of P, but for now this will do.
+  return ModRef;
+}
+
+AliasAnalysis::ModRefResult
+AliasAnalysis::getModRefInfo(const AtomicCmpXchgInst *CX, const Location &Loc) {
+  // Be conservative in the face of volatile.
+  if (CX->isVolatile())
+    return ModRef;
+
+  // Acquire/release and higher ordered cmpxchges need to avoid moving across
+  // other memory accesses to any address.  This completely blocks reordering,
+  // which is acceptable as a first approximation.  We can improve this by
+  // taking into account operation ordering.
+  if (CX->getOrdering() > Monotonic)
+    return ModRef;
+
+  // If the cmpxchg address doesn't alias the given address, it doesn't read
+  // or write the specified memory.
+  if (!alias(Location(CX->getPointerOperand(),
+                      getTypeStoreSize(CX->getType()),
+                      CX->getMetadata(LLVMContext::MD_tbaa)),
+             Loc))
+    return NoModRef;
+
+  // A cmpxchg both reads and writes its operand.
+  return ModRef;
+}
+
+AliasAnalysis::ModRefResult
+AliasAnalysis::getModRefInfo(const AtomicRMWInst *RMW, const Location &Loc) {
+  // Be conservative in the face of volatile.
+  if (RMW->isVolatile())
+    return ModRef;
+
+  // Acquire/release and higher ordered rmws need to avoid moving across other
+  // memory accesses to any address.  This completely blocks reordering, which
+  // is acceptable as a first approximation.  We can improve this by taking into
+  // account operation ordering.
+  if (RMW->getOrdering() > Monotonic)
+    return ModRef;
+
+  // If the rmw address doesn't alias the given address, it doesn't read
+  // or write the specified memory.
+  if (!alias(Location(RMW->getPointerOperand(),
+                      getTypeStoreSize(RMW->getType()),
+                      RMW->getMetadata(LLVMContext::MD_tbaa)),
+             Loc))
+    return NoModRef;
+
+  // A rmw both reads and writes its operand.
+  return ModRef;
 }
 
 AliasAnalysis::ModRefResult
