@@ -572,19 +572,19 @@ namespace ISD {
     ATOMIC_LOAD, ATOMIC_STORE,
 
     // Val, OUTCHAIN = ATOMIC_CMP_SWAP(INCHAIN, ptr, cmp, swap)
-    // this corresponds to the atomic.lcs intrinsic.
+    // this corresponds to the cmpxchg instruction.
     // cmp is compared to *ptr, and if equal, swap is stored in *ptr.
     // the return is always the original value in *ptr
     ATOMIC_CMP_SWAP,
 
     // Val, OUTCHAIN = ATOMIC_SWAP(INCHAIN, ptr, amt)
-    // this corresponds to the atomic.swap intrinsic.
+    // this corresponds to the atomicrmw xchg instruction.
     // amt is stored to *ptr atomically.
     // the return is always the original value in *ptr
     ATOMIC_SWAP,
 
     // Val, OUTCHAIN = ATOMIC_LOAD_[OpName](INCHAIN, ptr, amt)
-    // this corresponds to the atomic.load.[OpName] intrinsic.
+    // this corresponds to the atomicrmw [OpName] instruction.
     // op(*ptr, amt) is stored to *ptr atomically.
     // the return is always the original value in *ptr
     ATOMIC_LOAD_ADD,

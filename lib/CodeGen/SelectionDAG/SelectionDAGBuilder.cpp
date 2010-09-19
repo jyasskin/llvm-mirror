@@ -3270,25 +3270,6 @@ getF32Constant(SelectionDAG &DAG, unsigned Flt) {
   return DAG.getConstantFP(APFloat(APInt(32, Flt)), MVT::f32);
 }
 
-/// Inlined utility function to implement binary input atomic intrinsics for
-/// visitIntrinsicCall: I is a call instruction
-///                     Op is the associated NodeType for I
-const char *
-SelectionDAGBuilder::implVisitBinaryAtomic(const CallInst& I,
-                                           ISD::NodeType Op) {
-  SDValue Root = getRoot();
-  SDValue L =
-    DAG.getAtomic(Op, getCurDebugLoc(),
-                  getValue(I.getArgOperand(1)).getValueType().getSimpleVT(),
-                  Root,
-                  getValue(I.getArgOperand(0)),
-                  getValue(I.getArgOperand(1)),
-                  I.getArgOperand(0), 0, Monotonic, CrossThread);
-  setValue(&I, L);
-  DAG.setRoot(L.getValue(1));
-  return 0;
-}
-
 // implVisitAluOverflow - Lower arithmetic overflow instrinsics.
 const char *
 SelectionDAGBuilder::implVisitAluOverflow(const CallInst &I, ISD::NodeType Op) {
@@ -4736,68 +4717,6 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     DAG.setRoot(DAG.getNode(ISD::PREFETCH, dl, MVT::Other, &Ops[0], 4));
     return 0;
   }
-
-  case Intrinsic::memory_barrier: {
-    unsigned LL = cast<ConstantInt>(I.getArgOperand(0))->getZExtValue();
-    unsigned SL = cast<ConstantInt>(I.getArgOperand(2))->getZExtValue();
-    unsigned SS = cast<ConstantInt>(I.getArgOperand(3))->getZExtValue();
-    AtomicOrdering Ordering;
-    if (SL)
-      Ordering = SequentiallyConsistent;
-    else if (LL && SS)
-      Ordering = AcquireRelease;
-    else if (SS)
-      Ordering = Release;
-    else if (LL)
-      Ordering = Acquire;
-    else
-      Ordering = Acquire;  // Could just as well be Release.
-
-    const Type *i8 = Type::getInt8Ty(*DAG.getContext());
-    const Type *i1 = Type::getInt1Ty(*DAG.getContext());
-    DAG.setRoot(DAG.getNode(ISD::MEMBARRIER, dl, MVT::Other,
-                            getRoot(),
-                            getValue(ConstantInt::get(i8, Ordering)),
-                            getValue(ConstantInt::get(i1, CrossThread))));
-    return 0;
-  }
-  case Intrinsic::atomic_cmp_swap: {
-    SDValue Root = getRoot();
-    SDValue L =
-      DAG.getAtomic(ISD::ATOMIC_CMP_SWAP, getCurDebugLoc(),
-                    getValue(I.getArgOperand(1)).getValueType().getSimpleVT(),
-                    Root,
-                    getValue(I.getArgOperand(0)),
-                    getValue(I.getArgOperand(1)),
-                    getValue(I.getArgOperand(2)),
-                    MachinePointerInfo(I.getArgOperand(0)), 0,
-                    Monotonic, CrossThread);
-    setValue(&I, L);
-    DAG.setRoot(L.getValue(1));
-    return 0;
-  }
-  case Intrinsic::atomic_load_add:
-    return implVisitBinaryAtomic(I, ISD::ATOMIC_LOAD_ADD);
-  case Intrinsic::atomic_load_sub:
-    return implVisitBinaryAtomic(I, ISD::ATOMIC_LOAD_SUB);
-  case Intrinsic::atomic_load_or:
-    return implVisitBinaryAtomic(I, ISD::ATOMIC_LOAD_OR);
-  case Intrinsic::atomic_load_xor:
-    return implVisitBinaryAtomic(I, ISD::ATOMIC_LOAD_XOR);
-  case Intrinsic::atomic_load_and:
-    return implVisitBinaryAtomic(I, ISD::ATOMIC_LOAD_AND);
-  case Intrinsic::atomic_load_nand:
-    return implVisitBinaryAtomic(I, ISD::ATOMIC_LOAD_NAND);
-  case Intrinsic::atomic_load_max:
-    return implVisitBinaryAtomic(I, ISD::ATOMIC_LOAD_MAX);
-  case Intrinsic::atomic_load_min:
-    return implVisitBinaryAtomic(I, ISD::ATOMIC_LOAD_MIN);
-  case Intrinsic::atomic_load_umin:
-    return implVisitBinaryAtomic(I, ISD::ATOMIC_LOAD_UMIN);
-  case Intrinsic::atomic_load_umax:
-    return implVisitBinaryAtomic(I, ISD::ATOMIC_LOAD_UMAX);
-  case Intrinsic::atomic_swap:
-    return implVisitBinaryAtomic(I, ISD::ATOMIC_SWAP);
 
   case Intrinsic::invariant_start:
   case Intrinsic::lifetime_start:
