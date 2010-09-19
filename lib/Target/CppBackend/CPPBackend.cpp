@@ -1095,6 +1095,46 @@ std::string CppWriter::getOpName(Value* V) {
   return result;
 }
 
+namespace {
+#define ENUM_CASE(X) case X: return Out << #X
+raw_ostream &operator<<(raw_ostream &Out, AtomicOrdering Ordering) {
+  switch (Ordering) {
+    ENUM_CASE(NotAtomic);
+    ENUM_CASE(Unordered);
+    ENUM_CASE(Monotonic);
+    ENUM_CASE(Acquire);
+    ENUM_CASE(Release);
+    ENUM_CASE(AcquireRelease);
+    ENUM_CASE(SequentiallyConsistent);
+  }
+  llvm_unreachable("Unexpected AtomicOrdering");
+}
+raw_ostream &operator<<(raw_ostream &Out, SynchronizationScope SynchScope) {
+  switch (SynchScope) {
+    ENUM_CASE(SingleThread);
+    ENUM_CASE(CrossThread);
+  }
+  llvm_unreachable("Unexpected SynchronizationScope");
+}
+raw_ostream &operator<<(raw_ostream &Out, AtomicRMWInst::BinOp Op) {
+  switch (Op) {
+    ENUM_CASE(AtomicRMWInst::Xchg);
+    ENUM_CASE(AtomicRMWInst::Add);
+    ENUM_CASE(AtomicRMWInst::Sub);
+    ENUM_CASE(AtomicRMWInst::And);
+    ENUM_CASE(AtomicRMWInst::Nand);
+    ENUM_CASE(AtomicRMWInst::Or);
+    ENUM_CASE(AtomicRMWInst::Xor);
+    ENUM_CASE(AtomicRMWInst::Max);
+    ENUM_CASE(AtomicRMWInst::Min);
+    ENUM_CASE(AtomicRMWInst::UMax);
+    ENUM_CASE(AtomicRMWInst::UMin);
+  default: llvm_unreachable("Unexpected SynchronizationScope");
+  }
+}
+#undef ENUM_CASE
+}
+
 // printInstruction - This member is called for each Instruction in a function.
 void CppWriter::printInstruction(const Instruction *I,
                                  const std::string& bbname) {
@@ -1309,15 +1349,53 @@ void CppWriter::printInstruction(const Instruction *I,
     printEscapedString(load->getName());
     Out << "\", " << (load->isVolatile() ? "true" : "false" )
         << ", " << bbname << ");";
+    if (load->isAtomic()) {
+      Out << " " << iName << "->setAtomic(" << load->getOrdering() << ", "
+          << load->getSynchScope() << ");";
+    }
     break;
   }
   case Instruction::Store: {
     const StoreInst* store = cast<StoreInst>(I);
-    Out << " new StoreInst("
+    Out << "StoreInst* " << iName << " = new StoreInst("
         << opNames[0] << ", "
         << opNames[1] << ", "
         << (store->isVolatile() ? "true" : "false")
         << ", " << bbname << ");";
+    if (store->isAtomic()) {
+      Out << " " << iName << "->setAtomic(" << store->getOrdering() << ", "
+          << store->getSynchScope() << ");";
+    }
+    break;
+  }
+  case Instruction::Fence: {
+    const FenceInst* fence = cast<FenceInst>(I);
+    Out << "new FenceInst(mod->getContext(), "
+        << fence->getOrdering() << ", "
+        << fence->getSynchScope() << ", "
+        << bbname << ");";
+    break;
+  }
+  case Instruction::AtomicCmpXchg: {
+    const AtomicCmpXchgInst* cmpxchg = cast<AtomicCmpXchgInst>(I);
+    Out << "AtomicCmpXchgInst* " << iName << " = new AtomicCmpXchgInst("
+        << opNames[0] << ", "
+        << opNames[1] << ", "
+        << opNames[2] << ", "
+        << cmpxchg->getOrdering() << ", "
+        << cmpxchg->getSynchScope() << ", "
+        << bbname << ");";
+    break;
+  }
+  case Instruction::AtomicRMW: {
+    const AtomicRMWInst* rmw = cast<AtomicRMWInst>(I);
+    Out << "AtomicRMWInst* " << iName << " = new AtomicRMWInst("
+        << rmw->getOperation() << ", "
+        << opNames[0] << ", "
+        << opNames[1] << ", "
+        << rmw->getOrdering() << ", "
+        << rmw->getSynchScope() << ", "
+        << bbname << ");";
     break;
   }
   case Instruction::GetElementPtr: {
