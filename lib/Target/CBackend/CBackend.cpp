@@ -312,6 +312,9 @@ namespace {
     void visitAllocaInst(AllocaInst &I);
     void visitLoadInst  (LoadInst   &I);
     void visitStoreInst (StoreInst  &I);
+    void visitFenceInst (FenceInst  &I);
+    void visitAtomicCmpXchgInst(AtomicCmpXchgInst &I);
+    void visitAtomicRMWInst(AtomicRMWInst &I);
     void visitGetElementPtrInst(GetElementPtrInst &I);
     void visitVAArgInst (VAArgInst &I);
 
@@ -3426,15 +3429,34 @@ void CWriter::writeMemoryAccess(Value *Operand, const Type *OperandType,
 }
 
 void CWriter::visitLoadInst(LoadInst &I) {
-  writeMemoryAccess(I.getOperand(0), I.getType(), I.isVolatile(),
-                    I.getAlignment());
-
+  if (I.isAtomic()) {
+    Out << "__sync_fetch_and_add(&(";
+    writeMemoryAccess(I.getOperand(0), I.getType(), I.isVolatile(),
+                      I.getAlignment());
+    Out << "), 0)";
+  } else {
+    writeMemoryAccess(I.getOperand(0), I.getType(), I.isVolatile(),
+                      I.getAlignment());
+  }
 }
 
 void CWriter::visitStoreInst(StoreInst &I) {
+  bool isAtomic = I.isAtomic();
+  if (isAtomic) {
+    // __sync_lock_test_and_set is only an acquire operation, so we put a full
+    // barrier before it to make this store acquire and release.  On x86, this
+    // will also be sequentially-consistent, but there's no way to add fences to
+    // get that in general.
+    Out << "__sync_synchronize(); ";
+    Out << "__sync_lock_test_and_set(&(";
+  }
   writeMemoryAccess(I.getPointerOperand(), I.getOperand(0)->getType(),
                     I.isVolatile(), I.getAlignment());
-  Out << " = ";
+  if (isAtomic) {
+    Out << "), ";
+  } else {
+    Out << " = ";
+  }
   Value *Operand = I.getOperand(0);
   Constant *BitMask = 0;
   if (const IntegerType* ITy = dyn_cast<IntegerType>(Operand->getType()))
@@ -3450,6 +3472,48 @@ void CWriter::visitStoreInst(StoreInst &I) {
     printConstant(BitMask, false);
     Out << ")";
   }
+  if (isAtomic) {
+    Out << ")";
+  }
+}
+
+void CWriter::visitFenceInst(FenceInst &I) {
+  Out << "__sync_synchronize()";
+}
+
+void CWriter::visitAtomicCmpXchgInst(AtomicCmpXchgInst &I) {
+  Out << "__sync_val_compare_and_swap(&(";
+  writeMemoryAccess(I.getPointerOperand(), I.getCompareOperand()->getType(),
+                    I.isVolatile(), I.getAlignment());
+  Out << "), ";
+  writeOperand(I.getCompareOperand());
+  Out << ", ";
+  writeOperand(I.getNewValOperand());
+  Out << ")";
+}
+
+void CWriter::visitAtomicRMWInst(AtomicRMWInst &I) {
+  switch (I.getOperation()) {
+  default: llvm_unreachable("Unexpected AtomicRMW operation");
+  case AtomicRMWInst::Xchg:
+    Out << "__sync_synchronize(); __sync_lock_test_and_set"; break;
+  case AtomicRMWInst::Add:  Out << "__sync_fetch_and_add"; break;
+  case AtomicRMWInst::Sub:  Out << "__sync_fetch_and_sub"; break;
+  case AtomicRMWInst::And:  Out << "__sync_fetch_and_and"; break;
+  case AtomicRMWInst::Nand: Out << "__sync_fetch_and_nand"; break;
+  case AtomicRMWInst::Or:   Out << "__sync_fetch_and_or"; break;
+  case AtomicRMWInst::Xor:  Out << "__sync_fetch_and_xor"; break;
+  case AtomicRMWInst::Max:  Out << "__sync_fetch_and_max"; break;
+  case AtomicRMWInst::Min:  Out << "__sync_fetch_and_min"; break;
+  case AtomicRMWInst::UMax: Out << "__sync_fetch_and_umax"; break;
+  case AtomicRMWInst::UMin: Out << "__sync_fetch_and_umin"; break;
+  }
+  Out << "(&(";
+  writeMemoryAccess(I.getPointerOperand(), I.getValOperand()->getType(),
+                    I.isVolatile(), I.getAlignment());
+  Out << "), ";
+  writeOperand(I.getValOperand());
+  Out << ")";
 }
 
 void CWriter::visitGetElementPtrInst(GetElementPtrInst &I) {
